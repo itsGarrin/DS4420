@@ -4,6 +4,8 @@ from math import log2
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from tensorflow.keras import layers, losses
+from tensorflow.keras.models import Model
 
 
 class DecisionTree:
@@ -320,7 +322,7 @@ class LogisticGradientDescent:
         self.weights = np.zeros(X.shape[1])
 
         for i in range(self.iterations):
-            predictions = self.__sigmoid(X @ self.weights)
+            predictions = _sigmoid(X @ self.weights)
             gradient = (X.T @ (predictions - y) + self.alpha * self.weights)
             self.weights -= self.learning_rate * gradient
 
@@ -382,9 +384,6 @@ class LogisticGradientDescent:
             matrices = np.add(matrices, threshold_matrices)
         return generate_roc_curve(matrices)
 
-    def __sigmoid(self, z):
-        return 1 / (1 + np.exp(-z))
-
 
 # Build a perceptron class with normalized weights and counter for mistakes per iteration
 class Perceptron:
@@ -403,8 +402,8 @@ class Perceptron:
         for i in range(100):
             mistakes = 0
             for j in range(X.shape[0]):
-                if y[j] * (X[j] @ self.weights) <= 0:
-                    self.weights += self.learning_rate * y[j] * X[j]
+                if X[j] @ self.weights <= 0:
+                    self.weights += self.learning_rate * X[j]
                     mistakes += 1
             print("Iteration: " + str(i), ", Mistakes: " + str(mistakes))
             self.mistakes.append(mistakes)
@@ -417,6 +416,151 @@ class Perceptron:
         X = test.iloc[:, :-1]
         X = np.c_[np.ones(X.shape[0]), X]
         return np.sign(X @ self.weights)
+
+
+class NeuralNetwork:
+    def __init__(self, input=8, hiddenNodes=3, outputNodes=8):
+        # Set up Architecture of Neural Network
+        self.X = None
+        self.y = None
+
+        self.input = input
+        self.hiddenNodes = hiddenNodes
+        self.outputNodes = outputNodes
+
+        # Initial Weights
+        self.weights1 = np.random.randn(self.input, self.hiddenNodes)  # (8x3)
+        self.weights2 = np.random.randn(self.hiddenNodes, self.outputNodes)  # (3x8)
+
+    def train(self, X, y):
+        self.X = X
+        self.y = y
+        for _ in range(1000):
+            o = self._feed_forward(X)
+            self._backward(X, y, o)
+
+    def predict(self):
+        print("Predicted data based on trained weights: ")
+        print("Input (scaled): \n" + str(self.X))
+        print("Output: \n" + str(self._feed_forward(self.X)))
+        return self._feed_forward(self.X)
+
+    def _feed_forward(self, X):
+        """
+        Calculate the NN inference using feed forward.
+        """
+        # Weighted sum of inputs and hidden layer
+        self.hidden_sum = np.dot(X, self.weights1)
+
+        # Activations of weighted sum
+        self.activated_hidden = _sigmoid(self.hidden_sum)
+
+        # Weighted sum between hidden and output
+        self.output_sum = np.dot(self.activated_hidden, self.weights2)
+
+        # Final activation of output
+        self.activated_output = _sigmoid(self.output_sum)
+
+        return self.activated_output
+
+    def _backward(self, X, y, o):
+        """
+        Backward propagate through the network
+        """
+        # Error in output
+        self.o_error = y - o
+
+        # Apply derivative of sigmoid to error
+        self.o_delta = self.o_error * _sigmoidPrime(o)
+
+        # z2 error: how much our hidden layer weights contributed to output error
+        self.z2_error = self.o_delta.dot(self.weights2.T)
+
+        # Apply derivative of sigmoid to z2 error
+        self.z2_delta = self.z2_error * _sigmoidPrime(self.activated_hidden)
+
+        # Adjustment to first set of weights (input => hidden)
+        self.weights1 += X.T.dot(self.z2_delta)
+
+        # Adjustment to second set of weights (hidden => output)
+        self.weights2 += self.activated_hidden.T.dot(self.o_delta)
+
+
+class Autoencoder(Model):
+    def __init__(self, encoding_dim, hidden_dim):
+        super(Autoencoder, self).__init__()
+        self.hidden_layer = layers.Dense(hidden_dim, activation='relu')
+        self.output_layer = layers.Dense(encoding_dim, activation='sigmoid')
+
+    def call(self, input_features):
+        activation = self.hidden_layer(input_features)
+        return self.output_layer(activation)
+
+    def train(self, X, y, epochs=10000):
+        self.compile(optimizer='adam', loss=losses.MeanSquaredError())
+        self.fit(X, y, epochs=epochs, shuffle=True, verbose=0)
+
+    def test(self, y):
+        print("Input Data: " + str(y) + "\n" + "Predicted data based on trained weights: " + str(self.predict(y)))
+        return self.predict(y)
+
+
+class MultiNeuralNetwork:
+    def __init__(self, input_size=13, hidden_size=8, output_size=3):
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+
+        self.W1 = np.random.randn(self.input_size, self.hidden_size)
+        self.W2 = np.random.randn(self.hidden_size, self.output_size)
+
+    def train(self, X, y, learning_rate=0.1, epochs=1000):
+        for i in range(epochs):
+            self._forward(X)
+            self._backward(X, y, learning_rate)
+
+    def predict(self, X):
+        self._forward(X)
+        return self.yHat
+
+    def _forward(self, X):
+        self.z2 = np.dot(X, self.W1)
+        self.a2 = _sigmoid(self.z2)
+        self.z3 = np.dot(self.a2, self.W2)
+        self.yHat = _sigmoid(self.z3)
+
+    def _backward(self, X, y, learning_rate):
+        self.yHat_error = y - self.yHat
+        self.yHat_delta = self.yHat_error * _sigmoidPrime(self.yHat)
+
+        self.a2_error = self.yHat_delta.dot(self.W2.T)
+        self.a2_delta = self.a2_error * _sigmoidPrime(self.a2)
+
+        # Update weights
+        self.W1 += X.T.dot(self.a2_delta) * learning_rate
+        self.W2 += self.a2.T.dot(self.yHat_delta) * learning_rate
+
+
+# Create a multi-class neural network using TensorFlow 2.0
+class MultiNeuralNetworkTF(Model):
+    def __init__(self, hidden_size=8, output_size=3):
+        super(MultiNeuralNetworkTF, self).__init__()
+        self.hidden_layer = layers.Dense(hidden_size, activation='relu')
+        self.output_layer = layers.Dense(output_size, activation='sigmoid')
+
+    def call(self, input_features):
+        activation = self.hidden_layer(input_features)
+        return self.output_layer(activation)
+
+    def train(self, X, y, epochs=1000):
+        self.compile(optimizer='adam',
+                     loss=losses.SparseCategoricalCrossentropy(from_logits=False),
+                     metrics=['accuracy'])
+        self.fit(X, y, epochs=epochs, shuffle=True, verbose=0)
+
+    def predict(self, y):
+        print("Input Data: " + str(y) + "\n" + "Predicted data based on trained weights: " + str(super().predict(y)))
+        return super().predict(y)
 
 
 def normalize(data):
@@ -530,4 +674,12 @@ def generate_roc_curve(matrices):
         tpr.append(tp / (tp + fn))
 
     return fpr, tpr
+
+
+def _sigmoid(s):
+    return 1 / (1 + np.exp(-s))
+
+
+def _sigmoidPrime(s):
+    return s * (1 - s)
     # %%
