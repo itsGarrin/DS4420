@@ -433,19 +433,18 @@ class NeuralNetwork:
         self.weights1 = np.random.randn(self.input, self.hiddenNodes)  # (8x3)
         self.weights2 = np.random.randn(self.hiddenNodes, self.outputNodes)  # (3x8)
 
-    def train(self, X, y):
-        self.X = X
-        self.y = y
-        for _ in range(1000):
+    def train(self, X, y, epochs=1000, learning_rate=1e-3):
+        for _ in range(epochs):
             o = self._feed_forward(X)
-            self._backward(X, y, o)
+            self._backward(X, y, o, learning_rate)
 
-    def predict(self):
+    def predict(self, X):
+        out = self._feed_forward(X)
         print("Predicted data based on trained weights: ")
-        print("Input (scaled): \n" + str(self.X))
+        print("Input (scaled): \n" + str(X))
         print("Hidden Layer: \n" + str(self.weights1))
-        print("Output: \n" + str(self._feed_forward(self.X)))
-        return self._feed_forward(self.X)
+        print("Output: \n" + str(out))
+        return out
 
     def _feed_forward(self, X):
         """
@@ -465,7 +464,7 @@ class NeuralNetwork:
 
         return self.activated_output
 
-    def _backward(self, X, y, o):
+    def _backward(self, X, y, o, learning_rate):
         """
         Backward propagate through the network
         """
@@ -481,11 +480,11 @@ class NeuralNetwork:
         # Apply derivative of sigmoid to z2 error
         self.z2_delta = self.z2_error * _sigmoidPrime(self.activated_hidden)
 
-        # Adjustment to first set of weights (input => hidden)
-        self.weights1 += X.T.dot(self.z2_delta)
+        # Adjustment to first set of weights (input => hidden) with z2_delta
+        self.weights1 += X.T.dot(self.z2_delta) * learning_rate
 
-        # Adjustment to second set of weights (hidden => output)
-        self.weights2 += self.activated_hidden.T.dot(self.o_delta)
+        # Adjustment to second set of weights (hidden => output) with o_delta
+        self.weights2 += self.activated_hidden.T.dot(self.o_delta) * learning_rate
 
 
 class AutoencoderTF(Model):
@@ -499,57 +498,15 @@ class AutoencoderTF(Model):
         return self.output_layer(activation)
 
     def train(self, X, y, epochs=10000, learning_rate=1e-3):
-        self.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+        self.compile(optimizer=keras.optimizers.SGD(learning_rate=learning_rate),
                      loss=losses.MeanSquaredError())
         self.fit(X, y, epochs=epochs, shuffle=True, verbose=0)
 
     def test(self, y):
-        print("Input Data: " + str(y) + "\n" + "Predicted data based on trained weights: " + str(self.predict(y)))
+        predictions = self.predict(y)
+        print("Input Data: " + str(y) + "\n" + "Predicted data based on trained weights: " + str(predictions))
         print("Weights: " + str(self.weights))
-        return self.predict(y)
-
-
-class MultiNeuralNetwork:
-    def __init__(self, input_size=13, hidden_size=8, output_size=3):
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.output_size = output_size
-
-        self.W1 = np.random.randn(self.input_size, self.hidden_size)
-        self.W2 = np.random.randn(self.hidden_size, self.output_size)
-
-    def train(self, X, y, learning_rate=0.1, epochs=1000):
-        self.X = X
-        self.y = y
-        for i in range(epochs):
-            self._forward(X)
-            self._backward(X, y, learning_rate)
-
-    def predict(self, X):
-        self._forward(X)
-        print("Predicted data based on trained weights: " + str(self.yHat))
-        print("Weights: " + str(self.W1) + "\n" + str(self.W2))
-        print("Input (scaled): \n" + str(self.X))
-        print("Hidden Layer: \n" + str(self.z2))
-        print("Output: \n" + str(self.yHat))
-        return self.yHat
-
-    def _forward(self, X):
-        self.z2 = np.dot(X, self.W1)
-        self.a2 = _sigmoid(self.z2)
-        self.z3 = np.dot(self.a2, self.W2)
-        self.yHat = _sigmoid(self.z3)
-
-    def _backward(self, X, y, learning_rate):
-        self.yHat_error = y - self.yHat
-        self.yHat_delta = self.yHat_error * _sigmoidPrime(self.yHat)
-
-        self.a2_error = self.yHat_delta.dot(self.W2.T)
-        self.a2_delta = self.a2_error * _sigmoidPrime(self.a2)
-
-        # Update weights
-        self.W1 += X.T.dot(self.a2_delta) * learning_rate
-        self.W2 += self.a2.T.dot(self.yHat_delta) * learning_rate
+        return predictions
 
 
 def normalize(data):
