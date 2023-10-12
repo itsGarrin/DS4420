@@ -1,6 +1,7 @@
 from collections import Counter
 from math import log2
 
+import keras.optimizers
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -442,6 +443,7 @@ class NeuralNetwork:
     def predict(self):
         print("Predicted data based on trained weights: ")
         print("Input (scaled): \n" + str(self.X))
+        print("Hidden Layer: \n" + str(self.weights1))
         print("Output: \n" + str(self._feed_forward(self.X)))
         return self._feed_forward(self.X)
 
@@ -486,22 +488,24 @@ class NeuralNetwork:
         self.weights2 += self.activated_hidden.T.dot(self.o_delta)
 
 
-class Autoencoder(Model):
-    def __init__(self, encoding_dim, hidden_dim):
-        super(Autoencoder, self).__init__()
-        self.hidden_layer = layers.Dense(hidden_dim, activation='relu')
+class AutoencoderTF(Model):
+    def __init__(self, hidden_dim=3, encoding_dim=8):
+        super(AutoencoderTF, self).__init__()
+        self.hidden_layer = layers.Dense(hidden_dim)
         self.output_layer = layers.Dense(encoding_dim, activation='sigmoid')
 
     def call(self, input_features):
         activation = self.hidden_layer(input_features)
         return self.output_layer(activation)
 
-    def train(self, X, y, epochs=10000):
-        self.compile(optimizer='adam', loss=losses.MeanSquaredError())
+    def train(self, X, y, epochs=10000, learning_rate=1e-3):
+        self.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+                     loss=losses.MeanSquaredError())
         self.fit(X, y, epochs=epochs, shuffle=True, verbose=0)
 
     def test(self, y):
         print("Input Data: " + str(y) + "\n" + "Predicted data based on trained weights: " + str(self.predict(y)))
+        print("Weights: " + str(self.weights))
         return self.predict(y)
 
 
@@ -515,12 +519,19 @@ class MultiNeuralNetwork:
         self.W2 = np.random.randn(self.hidden_size, self.output_size)
 
     def train(self, X, y, learning_rate=0.1, epochs=1000):
+        self.X = X
+        self.y = y
         for i in range(epochs):
             self._forward(X)
             self._backward(X, y, learning_rate)
 
     def predict(self, X):
         self._forward(X)
+        print("Predicted data based on trained weights: " + str(self.yHat))
+        print("Weights: " + str(self.W1) + "\n" + str(self.W2))
+        print("Input (scaled): \n" + str(self.X))
+        print("Hidden Layer: \n" + str(self.z2))
+        print("Output: \n" + str(self.yHat))
         return self.yHat
 
     def _forward(self, X):
@@ -539,28 +550,6 @@ class MultiNeuralNetwork:
         # Update weights
         self.W1 += X.T.dot(self.a2_delta) * learning_rate
         self.W2 += self.a2.T.dot(self.yHat_delta) * learning_rate
-
-
-# Create a multi-class neural network using TensorFlow 2.0
-class MultiNeuralNetworkTF(Model):
-    def __init__(self, hidden_size=8, output_size=3):
-        super(MultiNeuralNetworkTF, self).__init__()
-        self.hidden_layer = layers.Dense(hidden_size, activation='relu')
-        self.output_layer = layers.Dense(output_size, activation='sigmoid')
-
-    def call(self, input_features):
-        activation = self.hidden_layer(input_features)
-        return self.output_layer(activation)
-
-    def train(self, X, y, epochs=1000):
-        self.compile(optimizer='adam',
-                     loss=losses.SparseCategoricalCrossentropy(from_logits=False),
-                     metrics=['accuracy'])
-        self.fit(X, y, epochs=epochs, shuffle=True, verbose=0)
-
-    def predict(self, y):
-        print("Input Data: " + str(y) + "\n" + "Predicted data based on trained weights: " + str(super().predict(y)))
-        return super().predict(y)
 
 
 def normalize(data):
