@@ -5,8 +5,9 @@ import keras.optimizers
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from tensorflow.keras import layers, losses
-from tensorflow.keras.models import Model
+from keras import layers, losses
+from keras.models import Model
+from scipy.stats import multivariate_normal, binom
 
 
 class DecisionTree:
@@ -330,7 +331,7 @@ class LogisticGradientDescent:
     def predict(self, test):
         X = test.iloc[:, :-1]
         X = np.c_[np.ones(X.shape[0]), X]
-        return 1 / (1 + np.exp(-X @ self.weights))
+        return _sigmoid(X @ self.weights)
 
     def cross_validate(self, train, k=10, confusion=False):
         fold_size = int(len(train) / k)
@@ -509,6 +510,329 @@ class AutoencoderTF(Model):
         return predictions
 
 
+# Create a GDA class with covariance matrix and mean
+class GaussianDiscriminantAnalysis:
+    def __init__(self, epsilon=1e-9):
+        self.mean = None
+        self.covariance = None
+        self.epsilon = epsilon
+
+    def fit(self, train):
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        self.mean = X.groupby(y).mean()
+        self.covariance = X.groupby(y).cov() + self.epsilon
+
+    def predict(self, test):
+        X = test.iloc[:, :-1]
+        return self.__predict(X).idxmax(axis=1)
+
+    def __predict(self, X):
+        predictions = []
+        for row in X.iterrows():
+            row = row[1]
+            predictions.append(self.__predict_row(row))
+        return pd.DataFrame(predictions)
+
+    def __predict_row(self, row):
+        probabilities = []
+        for label in self.mean.index:
+            probabilities.append(self.__gaussian(row, self.mean.loc[label], self.covariance.loc[label]))
+        return pd.Series(probabilities, index=self.mean.index)
+
+    def __gaussian(self, x, mean, covariance):
+        return (1 / np.sqrt(np.linalg.det(covariance))) * np.exp(
+            -0.5 * (x - mean).T @ np.linalg.inv(covariance) @ (x - mean))
+
+    def cross_validate(self, train, k=10, confusion=False):
+        fold_size = int(len(train) / k)
+        accuracies = []
+        matrix = np.zeros(shape=(2, 2), dtype=int)
+
+        for i in range(k):
+            # Shuffle data
+            train = train.sample(frac=1).reset_index(drop=True)
+            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
+                drop=True)
+            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+            self.fit(training_fold)
+            predictions = self.predict(validation_fold)
+            labels = validation_fold[validation_fold.columns[-1]]
+
+            matrix += confusion_matrix(labels, predictions)
+
+            accuracy = np.sum(predictions == labels) / len(labels)
+            accuracies.append(accuracy)
+
+        if confusion:
+            return np.mean(accuracies), matrix
+        else:
+            return np.mean(accuracies)
+
+
+# Create a Bernoulli Naive Bayes class by thresholding against a scalar
+class BernoulliNaiveBayes:
+    def __init__(self, epsilon=1e-9):
+        self.priors = None
+        self.threshold = None
+        self.probs = {}
+        self.epsilon = epsilon
+
+    def fit(self, train):
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        self.priors = X.groupby(y).size() / len(train)
+        self.threshold = X.mean().mean()
+
+        X = X >= self.threshold
+
+        for label in y.unique():
+            samples = X[y == label]
+            self.probs[label] = samples.mean() + self.epsilon
+
+    def predict(self, test):
+        X = test.iloc[:, :-1]
+        return pd.DataFrame(self.__predict(X))
+
+    def __predict(self, X):
+        predictions = []
+        for row in X.iterrows():
+            row = row[1]
+            predictions.append(self.__predict_row(row))
+        return predictions
+
+    def __predict_row(self, row):
+        probabilities = []
+        for label in self.probs:
+            probabilities.append(self.__bernoulli(row, self.threshold, self.probs[label], self.priors[label]))
+        return pd.Series(probabilities, index=self.probs.keys())
+
+    def __bernoulli(self, x, threshold, prob, prior):
+        return np.sum(np.where(x >= threshold, np.log(prob), np.log(1 - prob))) + np.log(prior)
+
+    def cross_validate(self, train, k=10, confusion=False):
+        fold_size = int(len(train) / k)
+        accuracies = []
+        matrix = np.zeros(shape=(2, 2), dtype=int)
+
+        for i in range(k):
+            # Shuffle data
+            train = train.sample(frac=1).reset_index(drop=True)
+            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
+                drop=True)
+            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+            self.fit(training_fold)
+            predictions = self.predict(validation_fold).idxmax(axis=1)
+            labels = validation_fold[validation_fold.columns[-1]]
+
+            matrix += confusion_matrix(labels, predictions)
+
+            accuracy = np.sum(predictions == labels) / len(labels)
+            accuracies.append(accuracy)
+
+        if confusion:
+            return np.mean(accuracies), matrix
+        else:
+            return np.mean(accuracies)
+
+    def roc_curve(self, train, k=10):
+        fold_size = int(len(train) / k)
+
+        i = k - 1
+
+        # Shuffle data
+        train = train.sample(frac=1).reset_index(drop=True)
+        training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
+            drop=True)
+        validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+        self.fit(training_fold)
+
+        pred = self.predict(validation_fold)
+        pred = pred.iloc[:, 0] - pred.iloc[:, 1]
+        thresholds = np.unique(pred)
+        thresholds = np.sort(thresholds)[::-1]
+
+        matrices = np.zeros(shape=(len(thresholds), 2, 2), dtype=int)
+
+        threshold_matrices = []
+        for threshold in thresholds:
+            vector = np.vectorize(lambda y: 1 if y >= threshold else 0)
+            predictions = vector(pred)
+            labels = validation_fold[validation_fold.columns[-1]]
+
+            threshold_matrices.append(confusion_matrix(labels, predictions))
+
+        matrices = np.add(matrices, threshold_matrices)
+
+        return generate_roc_curve(matrices)
+
+
+# Create a Gaussian Naive Bayes class with mean and variance
+class GaussianNaiveBayes:
+    def __init__(self, epsilon=1e-9):
+        self.priors = None
+        self.means = None
+        self.variances = None
+        self.epsilon = epsilon
+
+    def fit(self, train):
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        self.priors = X.groupby(y).size() / len(train)
+        self.means = X.groupby(y).mean()
+        self.variances = X.groupby(y).var() + self.epsilon
+
+    def predict(self, test):
+        X = test.iloc[:, :-1]
+        return self.__predict(X)
+
+    def __predict(self, X):
+        predictions = []
+        for row in X.iterrows():
+            row = row[1]
+            predictions.append(self.__predict_row(row))
+        return pd.DataFrame(predictions)
+
+    def __predict_row(self, row):
+        probabilities = []
+        for label in self.means.index:
+            probabilities.append(
+                self.__gaussian(row, self.means.loc[label], self.variances.loc[label], self.priors[label]))
+        return pd.Series(probabilities, index=self.means.index)
+
+    def __gaussian(self, x, mean, variance, prior):
+        return np.log(prior) + np.sum(-0.5 * np.log(2 * np.pi * variance) - 0.5 * ((x - mean) ** 2 / variance))
+
+    def cross_validate(self, train, k=10, confusion=False):
+        fold_size = int(len(train) / k)
+        accuracies = []
+        matrix = np.zeros(shape=(2, 2), dtype=int)
+
+        for i in range(k):
+            # Shuffle data
+            train = train.sample(frac=1).reset_index(drop=True)
+            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
+                drop=True)
+            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+            self.fit(training_fold)
+            predictions = self.predict(validation_fold).idxmax(axis=1)
+            labels = validation_fold[validation_fold.columns[-1]]
+
+            matrix += confusion_matrix(labels, predictions)
+
+            accuracy = np.sum(predictions == labels) / len(labels)
+            accuracies.append(accuracy)
+
+        if confusion:
+            return np.mean(accuracies), matrix
+        else:
+            return np.mean(accuracies)
+
+    def roc_curve(self, train, k=10):
+        fold_size = int(len(train) / k)
+
+        i = k - 1
+
+        # Shuffle data
+        train = train.sample(frac=1).reset_index(drop=True)
+        training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
+            drop=True)
+        validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+        self.fit(training_fold)
+
+        pred = self.predict(validation_fold)
+        pred = pred.iloc[:, 1] - pred.iloc[:, 0]
+        thresholds = np.unique(pred)
+        thresholds = np.sort(thresholds)[::-1]
+
+        matrices = np.zeros(shape=(len(thresholds), 2, 2), dtype=int)
+
+        threshold_matrices = []
+        for threshold in thresholds:
+            vector = np.vectorize(lambda y: 1 if y >= threshold else 0)
+            predictions = vector(pred)
+            labels = validation_fold[validation_fold.columns[-1]]
+
+            threshold_matrices.append(confusion_matrix(labels, predictions))
+
+        matrices = np.add(matrices, threshold_matrices)
+
+        return generate_roc_curve(matrices)
+
+
+class GaussianEM:
+    def __init__(self, dim, k, epochs=500, epsilon=1e-9):
+        self.means = [np.random.normal(size=dim) for _ in range(k)]
+        self.covariances = [np.eye(dim) for _ in range(k)]
+        self.weights = np.ones(k) / k
+        self.dim = dim
+        self.k = k
+        self.epsilon = epsilon
+        self.epochs = epochs
+        self.memberships = None
+
+    def fit(self, X):
+        for _ in range(self.epochs):
+            self.__e_step(X)
+            self.__m_step(X)
+
+        return self.means, self.covariances
+
+    def __e_step(self, X):
+        self.memberships = np.zeros((X.shape[0], self.weights.shape[0]))
+        for i in range(self.weights.shape[0]):
+            self.memberships[:, i] = self.weights[i] * multivariate_normal.pdf(X, self.means[i], self.covariances[i])
+
+        self.memberships = self.memberships / self.memberships.sum(axis=1, keepdims=True)
+
+    def __m_step(self, X):
+        self.weights = self.memberships.sum(axis=0) / X.shape[0]
+
+        for i in range(self.weights.shape[0]):
+            self.means[i] = np.sum(self.memberships[:, i, None] * X, axis=0) / self.memberships[:, i].sum()
+
+            diff = X - self.means[i]
+            self.covariances[i] = np.dot(self.memberships[:, i] * diff.T, diff) / self.memberships[:,
+                                                                                  i].sum() + self.epsilon
+
+
+# create a EM class to predict coin flips
+class BinomialEM:
+    def __init__(self, k, epochs=500, epsilon=1e-9):
+        self.probs = np.random.random((k, 1))
+        self.weights = np.ones(k) / k
+        self.k = k
+        self.epsilon = epsilon
+        self.epochs = epochs
+        self.memberships = None
+
+    def fit(self, X):
+        for _ in range(self.epochs):
+            self.__e_step(X)
+            self.__m_step(X)
+
+        return self.weights, self.probs
+
+    def __e_step(self, X):
+        self.memberships = np.zeros((X.shape[0], self.weights.shape[0]))
+        for i in range(self.weights.shape[0]):
+            self.memberships[:, i] = self.weights[i] * np.prod(binom.pmf(X, 1, self.probs[i]), axis=1)
+
+        self.memberships = self.memberships / self.memberships.sum(axis=1, keepdims=True)
+
+    def __m_step(self, X):
+        self.weights = self.memberships.sum(axis=0) / X.shape[0]
+
+        for i in range(self.weights.shape[0]):
+            self.probs[i] = np.sum(self.memberships[:, i][:, None] * X, axis=0).sum() / (
+                    self.memberships[:, i].sum() * X.shape[1])
+
+
 def normalize(data):
     avg = data.mean()
     stdev = data.std()
@@ -628,4 +952,3 @@ def _sigmoid(s):
 
 def _sigmoidPrime(s):
     return s * (1 - s)
-    # %%
