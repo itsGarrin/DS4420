@@ -1,5 +1,4 @@
-from collections import Counter
-from math import log2
+from statistics import mode
 
 import keras.optimizers
 import matplotlib.pyplot as plt
@@ -11,54 +10,130 @@ from scipy.stats import multivariate_normal, binom
 
 
 class DecisionTree:
-    def __init__(self, criterion, regression, max_depth=None, min_instances=2, target_impurity=0.0):
+    def __init__(self, criterion="entropy", regression=False, max_depth=10, min_instances=1, target_impurity=0.01):
         self.criterion = criterion
         self.regression = regression
         self.max_depth = max_depth
         self.min_instances = min_instances
         self.target_impurity = target_impurity
+        self.tree = None
 
-    # Function of dtree taking following parameters
-    def fit(self, train, depth=0):
-        num_instances = len(train)
-        num_classes = len(train[train.columns[-1]].unique())
-        class_counts = train[train.columns[-1]]
+    def fit(self, train):
+        self.tree = self.__build_tree(train)
 
-        # Checking max_depth and min_depth
-        if num_classes == 1 or (
-                self.max_depth is not None and depth == self.max_depth) or num_instances < self.min_instances:
-            return None, None, num_instances, self.regression(class_counts), 0, depth, None, None
+    def predict(self, test):
+        return self.__predict(test)
 
-        best_col, best_v, best_mae = self.__best_split(train, train.columns[-1], self.criterion)
+    def __build_tree(self, train, depth=0):
+        if self.regression:
+            return self.__build_tree_regression(train, depth)
+        else:
+            return self.__build_tree_classification(train, depth)
 
-        left_split = train[train[best_col] <= best_v]
-        right_split = train[train[best_col] > best_v]
+    def __build_tree_regression(self, train, depth):
+        if depth == self.max_depth:
+            return self.__leaf_regression(train)
+        elif len(train) <= self.min_instances:
+            return self.__leaf_regression(train)
+        elif self.__impurity(train) <= self.target_impurity:
+            return self.__leaf_regression(train)
+        else:
+            depth += 1
+            best_split = self.__best_split(train)
+            left = train[train[best_split[0]] <= best_split[1]]
+            right = train[train[best_split[0]] > best_split[1]]
+            return [best_split[0], best_split[1], self.__build_tree_regression(left, depth),
+                    self.__build_tree_regression(right, depth)]
 
-        if left_split.empty or right_split.empty:
-            left_split = train[train[best_col] == best_v]
-            right_split = train[train[best_col] != best_v]
+    def __build_tree_classification(self, train, depth):
+        if depth == self.max_depth:
+            return self.__leaf_classification(train)
+        elif len(train) <= self.min_instances:
+            return self.__leaf_classification(train)
+        elif self.__impurity(train) <= self.target_impurity:
+            return self.__leaf_classification(train)
+        else:
+            depth += 1
+            best_split = self.__best_split(train)
+            left = train[train[best_split[0]] <= best_split[1]]
+            right = train[train[best_split[0]] > best_split[1]]
+            return [best_split[0], best_split[1], self.__build_tree_classification(left, depth),
+                    self.__build_tree_classification(right, depth)]
 
-        # Checking for target impurity
-        if best_mae <= self.target_impurity:
-            left = None, None, len(left_split), self.regression(left_split[train.columns[-1]]), 0, depth + 1, None, None
-            right = None, None, len(right_split), self.regression(
-                right_split[train.columns[-1]]), 0, depth + 1, None, None
-            return best_col, best_v, num_instances, self.regression(class_counts), best_mae, depth, left, right
+    def __leaf_regression(self, train):
+        return train.iloc[:, -1].mean()
 
-        # Recursing
-        left = self.fit(left_split, depth + 1)
-        right = self.fit(right_split, depth + 1)
+    def __leaf_classification(self, train):
+        return mode(train.iloc[:, -1])
 
-        return best_col, best_v, num_instances, self.regression(class_counts), best_mae, depth, left, right
+    def __best_split(self, train):
+        best_feature = None
+        best_value = None
+        best_score = None
+        for feature in train.columns[:-1]:
+            for value in train[feature].unique():
+                score = self.__score(train, feature, value)
+                if best_score is None or score < best_score:
+                    best_feature = feature
+                    best_value = value
+                    best_score = score
+        return best_feature, best_value
 
-    def predict(self, model, data):
-        predictions = []
-        for _, row in data.iterrows():
-            predictions.append(self.__predict_row(model, row))
-        return predictions
+    def __score(self, train, feature, value):
+        left = train[train[feature] <= value]
+        right = train[train[feature] > value]
+        return self.__impurity(left) * len(left) + self.__impurity(right) * len(right)
 
-    # cross validation to determine overall validation error
-    # Returning avg. accuracies
+    def __impurity(self, train):
+        if self.criterion == "entropy":
+            return self.__entropy(train)
+        elif self.criterion == "gini":
+            return self.__gini(train)
+        elif self.criterion == "mse":
+            return self.__mse(train)
+        else:
+            raise ValueError("Invalid criterion")
+
+    def __entropy(self, train):
+        if len(train) == 0:
+            return 0
+        else:
+            p = train.iloc[:, -1].value_counts() / len(train)
+            return -sum(p * np.log2(p))
+
+    def __gini(self, train):
+        if len(train) == 0:
+            return 0
+        else:
+            p = train.iloc[:, -1].value_counts() / len(train)
+            return 1 - sum(p ** 2)
+
+    def __mse(self, train):
+        if len(train) == 0:
+            return 0
+        else:
+            return np.var(train.iloc[:, -1])
+
+    def __predict(self, test):
+        return test.apply(self.__predict_row, axis=1)
+
+    def __predict_row(self, row):
+        return self.__predict_row_helper(row, self.tree)
+
+    def __predict_row_helper(self, row, tree):
+        if isinstance(tree, float) or isinstance(tree, int):
+            return tree
+        else:
+            if row[tree[0]] <= tree[1]:
+                return self.__predict_row_helper(row, tree[2])
+            else:
+                return self.__predict_row_helper(row, tree[3])
+
+    def mse(self, test):
+        predictions = self.predict(test)
+        labels = test.iloc[:, -1]
+        return np.mean((predictions - labels) ** 2)
+
     def cross_validate(self, train, k=10, confusion=False):
         fold_size = int(len(train) / k)
         accuracies = []
@@ -71,8 +146,8 @@ class DecisionTree:
                 drop=True)
             validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
 
-            model = self.fit(training_fold)
-            predictions = self.predict(model, validation_fold)
+            self.fit(training_fold)
+            predictions = self.predict(validation_fold)
             labels = validation_fold[validation_fold.columns[-1]]
 
             matrix += confusion_matrix(labels, predictions)
@@ -84,57 +159,6 @@ class DecisionTree:
             return np.mean(accuracies), matrix
         else:
             return np.mean(accuracies)
-
-    def mse(self, model, test):
-        y_pred = self.predict(model, test)
-        y = test.iloc[:, -1]
-        return np.mean((y - y_pred) ** 2)
-
-    def __wavg(self, cnt1, cnt2, measure):
-        tot1 = len(cnt1)
-        tot2 = len(cnt2)
-        tot = tot1 + tot2
-        return (measure(cnt1) * tot1 + measure(cnt2) * tot2) / tot
-
-    def __evaluate_split(self, df, class_col, split_col, feature_val, measure):
-        df1, df2 = df[df[split_col] <= feature_val], df[df[split_col] > feature_val]
-        return self.__wavg(df1[class_col], df2[class_col], measure)
-
-    def __best_split_for_column(self, df, class_col, split_col, method):
-        best_v = ''
-        best_mae = float("inf")
-
-        for v in set(df[split_col]):
-
-            mae = self.__evaluate_split(df, class_col, split_col, v, method)
-            if mae < best_mae:
-                best_v = v
-                best_mae = mae
-
-        return best_v, best_mae
-
-    def __best_split(self, df, class_col, method):
-        best_col = 0
-        best_v = ''
-        best_mae = float("inf")
-
-        for split_col in df.columns:
-            if split_col != class_col:
-                v, mae = self.__best_split_for_column(df, class_col, split_col, method)
-                if mae < best_mae:
-                    best_v = v
-                    best_mae = mae
-                    best_col = split_col
-
-        return best_col, best_v, best_mae
-
-    def __predict_row(self, model, row):
-        if model[0] is None:
-            return model[3]
-        if row[model[0]] <= model[1]:
-            return self.__predict_row(model[6], row)
-        else:
-            return self.__predict_row(model[7], row)
 
 
 # Implement a linear regression class using exact solution
@@ -833,24 +857,73 @@ class BinomialEM:
                     self.memberships[:, i].sum() * X.shape[1])
 
 
+# Create an AdaBoost class
+class AdaBoost:
+    def __init__(self, T=10):
+        self.T = T
+        self.alphas = None
+        self.models = None
+
+    def fit(self, train):
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        n = len(X)
+        w = np.ones(n) / n
+        self.models = []
+        self.alphas = []
+
+        for _ in range(self.T):
+            model = DecisionTree(max_depth=1)
+            model.fit(train, sample_weight=w)
+            predictions = model.predict(X)
+            error = w[(predictions != y)].sum()
+            alpha = 0.5 * np.log((1 - error) / error)
+            w = w * np.exp(-alpha * y * predictions)
+            w = w / w.sum()
+            self.models.append(model)
+            self.alphas.append(alpha)
+
+    def predict(self, test):
+        X = test.iloc[:, :-1]
+        predictions = np.zeros(len(X))
+
+        for alpha, model in zip(self.alphas, self.models):
+            predictions += alpha * model.predict(X)
+
+        predictions = np.sign(predictions)
+        return predictions
+
+    def cross_validate(self, train, k=10, confusion=False):
+        fold_size = int(len(train) / k)
+        accuracies = []
+        matrix = np.zeros(shape=(2, 2), dtype=int)
+
+        for i in range(k):
+            # Shuffle data
+            train = train.sample(frac=1).reset_index(drop=True)
+            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
+                drop=True)
+            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+            self.fit(training_fold)
+            predictions = self.predict(validation_fold)
+            labels = validation_fold[validation_fold.columns[-1]]
+
+            matrix += confusion_matrix(labels, predictions)
+
+            accuracy = np.sum(predictions == labels) / len(labels)
+            accuracies.append(accuracy)
+
+        if confusion:
+            return np.mean(accuracies), matrix
+        else:
+            return np.mean(accuracies)
+
+
 def normalize(data):
     avg = data.mean()
     stdev = data.std()
     return (data - avg) / stdev, avg, stdev
-
-
-# Entropy Method
-# Entropy is a measure of information that indicates the disorder of the features with the target.
-# Similar to the Gini Index, the optimum split is chosen by the feature with less entropy.
-def entropy(labels):
-    cnt = Counter(labels)
-    tot = sum(cnt.values())
-    return sum([-cnt[i] / tot * log2(cnt[i] / tot) for i in cnt])
-
-
-# Variance
-def variance(labels):
-    return np.var(labels)
 
 
 def plot_roc_curve(fpr, tpr):
