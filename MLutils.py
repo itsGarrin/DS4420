@@ -1,4 +1,4 @@
-from statistics import mode
+from statistics import mean, mode
 
 import keras.optimizers
 import matplotlib.pyplot as plt
@@ -6,7 +6,11 @@ import numpy as np
 import pandas as pd
 from keras import layers, losses
 from keras.models import Model
+from scipy import sparse
 from scipy.stats import multivariate_normal, binom
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.utils import shuffle, resample
 
 
 class DecisionTree:
@@ -19,100 +23,109 @@ class DecisionTree:
         self.tree = None
 
     def fit(self, train):
-        self.tree = self.__build_tree(train)
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        self.tree = self.__build_tree(X, y)
 
     def predict(self, test):
         return self.__predict(test)
 
-    def __build_tree(self, train, depth=0):
+    def __build_tree(self, X, y, depth=0):
         if self.regression:
-            return self.__build_tree_regression(train, depth)
+            return self.__build_tree_regression(X, y, depth)
         else:
-            return self.__build_tree_classification(train, depth)
+            return self.__build_tree_classification(X, y, depth)
 
-    def __build_tree_regression(self, train, depth):
+    def __build_tree_regression(self, X, y, depth):
         if depth == self.max_depth:
-            return self.__leaf_regression(train)
-        elif len(train) <= self.min_instances:
-            return self.__leaf_regression(train)
-        elif self.__impurity(train) <= self.target_impurity:
-            return self.__leaf_regression(train)
+            return self.__leaf_regression(y)
+        elif len(y) <= self.min_instances:
+            return self.__leaf_regression(y)
+        elif self.__impurity(y) <= self.target_impurity:
+            return self.__leaf_regression(y)
         else:
             depth += 1
-            best_split = self.__best_split(train)
-            left = train[train[best_split[0]] <= best_split[1]]
-            right = train[train[best_split[0]] > best_split[1]]
-            return [best_split[0], best_split[1], self.__build_tree_regression(left, depth),
-                    self.__build_tree_regression(right, depth)]
+            best_split = self.__best_split(X, y)
+            left_X = X[X[best_split[0]] <= best_split[1]]
+            left_y = y[X[best_split[0]] <= best_split[1]]
+            right_X = X[X[best_split[0]] > best_split[1]]
+            right_y = y[X[best_split[0]] > best_split[1]]
+            return [best_split[0], best_split[1], self.__build_tree_regression(left_X, left_y, depth),
+                    self.__build_tree_regression(right_X, right_y, depth)]
 
-    def __build_tree_classification(self, train, depth):
+    def __build_tree_classification(self, X, y, depth):
         if depth == self.max_depth:
-            return self.__leaf_classification(train)
-        elif len(train) <= self.min_instances:
-            return self.__leaf_classification(train)
-        elif self.__impurity(train) <= self.target_impurity:
-            return self.__leaf_classification(train)
+            return self.__leaf_classification(y)
+        elif len(y) <= self.min_instances:
+            return self.__leaf_classification(y)
+        elif self.__impurity(y) <= self.target_impurity:
+            return self.__leaf_classification(y)
         else:
             depth += 1
-            best_split = self.__best_split(train)
-            left = train[train[best_split[0]] <= best_split[1]]
-            right = train[train[best_split[0]] > best_split[1]]
-            return [best_split[0], best_split[1], self.__build_tree_classification(left, depth),
-                    self.__build_tree_classification(right, depth)]
+            best_split = self.__best_split(X, y)
+            left_X = X[X[best_split[0]] <= best_split[1]]
+            left_y = y[X[best_split[0]] <= best_split[1]]
+            right_X = X[X[best_split[0]] > best_split[1]]
+            right_y = y[X[best_split[0]] > best_split[1]]
+            return [best_split[0], best_split[1], self.__build_tree_classification(left_X, left_y, depth),
+                    self.__build_tree_classification(right_X, right_y, depth)]
 
-    def __leaf_regression(self, train):
-        return train.iloc[:, -1].mean()
+    def __leaf_regression(self, y):
+        return y.mean()
 
-    def __leaf_classification(self, train):
-        return mode(train.iloc[:, -1])
+    def __leaf_classification(self, y):
+        return mode(y)
 
-    def __best_split(self, train):
+    def __best_split(self, X, y):
         best_feature = None
         best_value = None
-        best_score = None
-        for feature in train.columns[:-1]:
-            for value in train[feature].unique():
-                score = self.__score(train, feature, value)
-                if best_score is None or score < best_score:
+        best_score = np.inf
+
+        for feature in X.columns:
+            for value in X[feature]:
+                score = self.__score(X, y, feature, value)
+                if score < best_score:
                     best_feature = feature
                     best_value = value
                     best_score = score
+
         return best_feature, best_value
 
-    def __score(self, train, feature, value):
-        left = train[train[feature] <= value]
-        right = train[train[feature] > value]
+    def __score(self, X, y, feature, value):
+        left = y[X[feature] <= value]
+        right = y[X[feature] > value]
+
         return self.__impurity(left) * len(left) + self.__impurity(right) * len(right)
 
-    def __impurity(self, train):
+    def __impurity(self, y):
         if self.criterion == "entropy":
-            return self.__entropy(train)
+            return self.__entropy(y)
         elif self.criterion == "gini":
-            return self.__gini(train)
+            return self.__gini(y)
         elif self.criterion == "mse":
-            return self.__mse(train)
+            return self.__mse(y)
         else:
             raise ValueError("Invalid criterion")
 
-    def __entropy(self, train):
-        if len(train) == 0:
+    def __entropy(self, y):
+        if len(y) == 0:
             return 0
         else:
-            p = train.iloc[:, -1].value_counts() / len(train)
+            p = y.value_counts() / len(y)
             return -sum(p * np.log2(p))
 
-    def __gini(self, train):
-        if len(train) == 0:
+    def __gini(self, y):
+        if len(y) == 0:
             return 0
         else:
-            p = train.iloc[:, -1].value_counts() / len(train)
+            p = y.value_counts() / len(y)
             return 1 - sum(p ** 2)
 
-    def __mse(self, train):
-        if len(train) == 0:
+    def __mse(self, y):
+        if len(y) == 0:
             return 0
         else:
-            return np.var(train.iloc[:, -1])
+            return np.var(y)
 
     def __predict(self, test):
         return test.apply(self.__predict_row, axis=1)
@@ -857,31 +870,37 @@ class BinomialEM:
                     self.memberships[:, i].sum() * X.shape[1])
 
 
-# Create an AdaBoost class
+# Create an AdaBoost class using random splits
 class AdaBoost:
-    def __init__(self, T=10):
-        self.T = T
-        self.alphas = None
-        self.models = None
+    def __init__(self, num_classifiers=80, learning_rate=0.5, splitter="best"):
+        self.num_classifiers = num_classifiers
+        self.learning_rate = learning_rate
+        self.alphas = []
+        self.models = []
+        self.splitter = splitter
 
+    # Create a fit function that uses either optimal or random splits
     def fit(self, train):
         X = train.iloc[:, :-1]
         y = train.iloc[:, -1]
-        n = len(X)
-        w = np.ones(n) / n
-        self.models = []
-        self.alphas = []
+        y = np.where(y <= 0, -1, 1)
+        weights = np.ones(len(X)) / len(X)
 
-        for _ in range(self.T):
-            model = DecisionTree(max_depth=1)
-            model.fit(train, sample_weight=w)
-            predictions = model.predict(X)
-            error = w[(predictions != y)].sum()
-            alpha = 0.5 * np.log((1 - error) / error)
-            w = w * np.exp(-alpha * y * predictions)
-            w = w / w.sum()
-            self.models.append(model)
+        for _ in range(self.num_classifiers):
+            stump = DecisionTreeClassifier(max_depth=1, splitter=self.splitter)
+            stump.fit(X, y, sample_weight=weights)
+            predictions = stump.predict(X)
+            error = np.sum(weights[predictions != y]) / np.sum(weights)
+
+            alpha = 1
+            if error != 0:
+                alpha = self.learning_rate * np.log((1 - error) / error)
+
+            weights = weights * np.exp(-alpha * y * predictions)
+            weights = weights / np.sum(weights)
+
             self.alphas.append(alpha)
+            self.models.append(stump)
 
     def predict(self, test):
         X = test.iloc[:, :-1]
@@ -890,34 +909,146 @@ class AdaBoost:
         for alpha, model in zip(self.alphas, self.models):
             predictions += alpha * model.predict(X)
 
-        predictions = np.sign(predictions)
-        return predictions
+        return np.sign(predictions)
 
-    def cross_validate(self, train, k=10, confusion=False):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        matrix = np.zeros(shape=(2, 2), dtype=int)
+    def accuracy(self, test):
+        y = test.iloc[:, -1]
+        y = np.where(y <= 0, -1, 1)
+        predictions = self.predict(test)
+        return np.sum(predictions == y) / len(y)
 
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+    def active_learning(self, data, initial_train_size=0.05, step_size=0.025, final_train_size=0.6):
+        data = shuffle(data)
+        train_data, rest_data = train_test_split(data, train_size=initial_train_size)
 
-            self.fit(training_fold)
-            predictions = self.predict(validation_fold)
-            labels = validation_fold[validation_fold.columns[-1]]
+        self.fit(train_data)
+        accuracy_scores = [self.accuracy(train_data)]
 
-            matrix += confusion_matrix(labels, predictions)
+        while len(train_data) < final_train_size * len(data):
+            # computing the absolute prediction scores
+            rest_data_scores = self.predict(rest_data)
 
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
+            # selecting the samples closest to decision surface
+            closest_samples_indices = np.argsort(rest_data_scores)[:int(step_size * len(rest_data))]
+            closest_samples = rest_data.iloc[closest_samples_indices]
 
-        if confusion:
-            return np.mean(accuracies), matrix
-        else:
-            return np.mean(accuracies)
+            # adding the selected samples to the training data
+            train_data = pd.concat([train_data, closest_samples], ignore_index=True).reset_index(drop=True)
+
+            # removing the selected samples from the remaining data
+            rest_data = rest_data.drop(closest_samples_indices, errors='ignore').reset_index(drop=True)
+
+            self.fit(train_data)
+            accuracy_scores.append(self.accuracy(train_data))
+
+        return mean(accuracy_scores), train_data
+
+
+class ECOC:
+    def __init__(self, ecoc_codes):
+        self.ecoc_codes = ecoc_codes
+        self.estimators = []
+        self.classes = None
+
+    def fit(self, train):
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        self.classes = np.unique(y)
+
+        for column_index in range(self.ecoc_codes.shape[1]):
+            binary_y = self.__encode(y, column_index)
+
+            estimator = AdaBoost(num_classifiers=200)
+            estimator.fit(pd.concat([X, pd.DataFrame(binary_y)], axis=1))
+            self.estimators.append(estimator)
+
+    def __encode(self, y, column_index):
+        binary_y = np.zeros(len(y))
+        for label in self.classes:
+            binary_bit = self.ecoc_codes[self.classes == label, column_index]
+            binary_y[y == label] = binary_bit
+        return binary_y
+
+    def predict(self, test):
+        X = test.iloc[:, :-1]
+        predictions = np.zeros((len(X), len(self.estimators)))
+        for i, estimator in enumerate(self.estimators):
+            predictions[:, i] = estimator.predict(test)
+        return self.__decode(predictions)
+
+    def __decode(self, predictions):
+        decoded = []
+        for row in predictions:
+            decoded.append(self.__decode_row(row))
+        return decoded
+
+    def __decode_row(self, row):
+        distances = []
+        for code in self.ecoc_codes:
+            distances.append(np.sum(code != row))
+        return self.classes[np.argmin(distances)]
+
+    def accuracy(self, test):
+        y = test.iloc[:, -1]
+        predictions = self.predict(test)
+        print(predictions)
+        print(y)
+        return np.sum(predictions == y) / len(y)
+
+
+class Bagging:
+    def __init__(self, n_estimators=50, max_depth=None):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.trees = []
+
+    def fit(self, train):
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        for _ in range(self.n_estimators):
+            X_resample, y_resample = resample(X, y)
+            tree = DecisionTreeClassifier(max_depth=self.max_depth)
+            tree.fit(X_resample, y_resample)
+            self.trees.append(tree)
+
+    def predict(self, test):
+        X = test.iloc[:, :-1]
+        predictions = []
+        for tree in self.trees:
+            predictions.append(tree.predict(X))
+        return [mode(pred) for pred in np.transpose(predictions)]
+
+    def accuracy(self, test):
+        y = test.iloc[:, -1]
+        predictions = self.predict(test)
+        return np.sum(predictions == y) / len(y)
+
+
+class GradientBoosting:
+    def __init__(self, n_estimators=10, max_depth=2):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.trees = []
+
+    def fit(self, train):
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        self.trees = []
+        Yx = np.array(y)
+        for _ in range(self.n_estimators):
+            tree = DecisionTreeRegressor(max_depth=self.max_depth)
+            tree.fit(X, Yx)
+            self.trees.append(tree)
+            Yx = Yx - tree.predict(X)
+
+    def predict(self, test):
+        X = test.iloc[:, :-1]
+        return sum(tree.predict(X) for tree in self.trees)
+
+    def mse(self, test):
+        y_pred = self.predict(test)
+        y = test.iloc[:, -1]
+        return np.mean((y_pred - y) ** 2)
 
 
 def normalize(data):
@@ -1017,6 +1148,41 @@ def generate_roc_curve(matrices):
         tpr.append(tp / (tp + fn))
 
     return fpr, tpr
+
+
+def load_newsgroup(file_path):
+    with open(file_path, 'r') as f:
+        data = []
+        row = []
+        col = []
+        labels = []
+        i = 0
+        for line in f:
+            # split the line into label and sparse vector
+            parts = line.strip().split()
+            label = int(parts[0])
+            labels.append(label)
+            # parse the sparse vector
+            for pair in parts[1:]:
+                idx, val = pair.split(':')
+                row.append(i)
+                col.append(int(idx))
+                data.append(float(val))
+            i += 1
+        # create the sparse matrix in COO format
+        X_coo = sparse.coo_matrix((data, (row, col)))
+        # convert COO to CSR format
+        X_features = X_coo.tocsr()
+
+        labels = np.array(labels).reshape(-1, 1)
+        labels = sparse.csr_matrix(labels)
+
+        # combine the labels and features into a single array
+        X = sparse.hstack([X_features, labels])
+
+        df = pd.DataFrame.sparse.from_spmatrix(X)
+
+        return df
 
 
 def _sigmoid(s):
