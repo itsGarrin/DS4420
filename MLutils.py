@@ -1,3 +1,4 @@
+from collections import defaultdict
 from statistics import mean, mode
 
 import keras.optimizers
@@ -608,7 +609,6 @@ class GaussianDiscriminantAnalysis:
             return np.mean(accuracies)
 
 
-# Create a Bernoulli Naive Bayes class by thresholding against a scalar
 class BernoulliNaiveBayes:
     def __init__(self, epsilon=1e-9):
         self.priors = None
@@ -707,7 +707,6 @@ class BernoulliNaiveBayes:
         return generate_roc_curve(matrices)
 
 
-# Create a Gaussian Naive Bayes class with mean and variance
 class GaussianNaiveBayes:
     def __init__(self, epsilon=1e-9):
         self.priors = None
@@ -870,7 +869,6 @@ class BinomialEM:
                     self.memberships[:, i].sum() * X.shape[1])
 
 
-# Create an AdaBoost class using random splits
 class AdaBoost:
     def __init__(self, num_classifiers=80, learning_rate=0.5, splitter="best"):
         self.num_classifiers = num_classifiers
@@ -878,18 +876,22 @@ class AdaBoost:
         self.alphas = []
         self.models = []
         self.splitter = splitter
+        self.feature_importance = None
 
-    # Create a fit function that uses either optimal or random splits
     def fit(self, train):
         X = train.iloc[:, :-1]
         y = train.iloc[:, -1]
         y = np.where(y <= 0, -1, 1)
         weights = np.ones(len(X)) / len(X)
+        self.feature_importance = FeatureImportance()
 
         for _ in range(self.num_classifiers):
             stump = DecisionTreeClassifier(max_depth=1, splitter=self.splitter)
             stump.fit(X, y, sample_weight=weights)
             predictions = stump.predict(X)
+
+            self.feature_importance.add(stump, stump.feature_importances_)
+
             error = np.sum(weights[predictions != y]) / np.sum(weights)
 
             alpha = 1
@@ -943,6 +945,9 @@ class AdaBoost:
 
         return mean(accuracy_scores), train_data
 
+    def top_features(self, n=10):
+        return self.feature_importance.top_n_features(n)
+
 
 class ECOC:
     def __init__(self, ecoc_codes):
@@ -991,8 +996,6 @@ class ECOC:
     def accuracy(self, test):
         y = test.iloc[:, -1]
         predictions = self.predict(test)
-        print(predictions)
-        print(y)
         return np.sum(predictions == y) / len(y)
 
 
@@ -1049,6 +1052,87 @@ class GradientBoosting:
         y_pred = self.predict(test)
         y = test.iloc[:, -1]
         return np.mean((y_pred - y) ** 2)
+
+
+class FeatureImportance:
+    def __init__(self):
+        self.feature_importance_ = defaultdict(float)
+
+    def add(self, model, importance):
+        for feat, imp in enumerate(importance):
+            self.feature_importance_[feat] += imp
+
+    def top_n_features(self, n=10):
+        return sorted(self.feature_importance_.items(), key=lambda x: x[1], reverse=True)[:n]
+
+
+class PCA:
+    def __init__(self, n_components):
+        self.n_components = n_components
+        self.components = None
+        self.mean = None
+
+    def fit(self, X):
+        self.mean = np.mean(X, axis=0)
+        X = X - self.mean
+        cov = np.cov(X.T)
+        eigenvalues, eigenvectors = np.linalg.eig(cov)
+        eigenvectors = eigenvectors.T
+        idxs = np.argsort(eigenvalues)[::-1]
+        eigenvalues = eigenvalues[idxs]
+        eigenvectors = eigenvectors[idxs]
+        self.components = eigenvectors[0:self.n_components]
+
+    def transform(self, X):
+        X = X - self.mean
+        return np.dot(X, self.components.T)
+
+
+class MissingValuesBernoulliNaiveBayes:
+    def __init__(self, epsilon=1e-9):
+        self.priors = None
+        self.threshold = None
+        self.probs = {}
+        self.epsilon = epsilon
+
+    def fit(self, train):
+        X = train.iloc[:, :-1]
+        y = train.iloc[:, -1]
+        self.priors = X.groupby(y).size() / len(train)
+        self.threshold = X.apply(np.nanmean, axis=0)
+
+        X = X >= self.threshold
+
+        for label in y.unique():
+            samples = X[y == label]
+            self.probs[label] = (samples >= self.threshold).mean() + self.epsilon
+
+    def predict(self, test):
+        X = test.iloc[:, :-1]
+        X = X.apply(lambda column: column.fillna(column.mean()), axis=0)
+        return pd.DataFrame(self.__predict(X))
+
+    def __predict(self, X):
+        predictions = []
+        for row in X.iterrows():
+            row = row[1]
+            predictions.append(self.__predict_row(row))
+        return predictions
+
+    def __predict_row(self, row):
+        probabilities = []
+        for label in self.probs:
+            probabilities.append(self.__bernoulli(row, self.threshold, self.probs[label], self.priors[label]))
+        return pd.Series(probabilities, index=self.probs.keys())
+
+    def __bernoulli(self, x, threshold, prob, prior):
+        factors = np.where(x.notna(), np.where(x >= threshold, np.log(prob), np.log(1 - prob)), 0)
+        return np.sum(factors) + np.log(prior)
+
+    def accuracy(self, test):
+        y = test.iloc[:, -1]
+        predictions = self.predict(test).idxmax(axis=1)
+        return np.sum(predictions == y) / len(y)
 
 
 def normalize(data):
