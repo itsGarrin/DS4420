@@ -1,4 +1,3 @@
-from collections import defaultdict
 from statistics import mean, mode
 
 import keras.optimizers
@@ -883,15 +882,11 @@ class AdaBoost:
         y = train.iloc[:, -1]
         y = np.where(y <= 0, -1, 1)
         weights = np.ones(len(X)) / len(X)
-        self.feature_importance = FeatureImportance()
 
         for _ in range(self.num_classifiers):
             stump = DecisionTreeClassifier(max_depth=1, splitter=self.splitter)
             stump.fit(X, y, sample_weight=weights)
             predictions = stump.predict(X)
-
-            self.feature_importance.add(stump, stump.feature_importances_)
-
             error = np.sum(weights[predictions != y]) / np.sum(weights)
 
             alpha = 1
@@ -945,8 +940,24 @@ class AdaBoost:
 
         return mean(accuracy_scores), train_data
 
-    def top_features(self, n=10):
-        return self.feature_importance.top_n_features(n)
+    def __get_feature_importance(self):
+        feature_scores = {}
+        coef_sum = 0
+        for alpha, stump in zip(self.alphas, self.models):
+            coef_sum += alpha
+            ind = list(stump.feature_importances_).index(max(stump.feature_importances_))
+            prev_val = feature_scores.get(ind, 0)
+            feature_scores[ind] = prev_val + alpha / coef_sum
+
+        # convert to DataFrame for easy sorting and plotting
+        feature_df = pd.DataFrame(list(feature_scores.items()), columns=['Feature', 'Importance'])
+        feature_df = feature_df.sort_values('Importance', ascending=False)
+
+        return feature_df
+
+    def get_top_features(self, n):
+        feature_df = self.__get_feature_importance()
+        return feature_df.iloc[:n, :]
 
 
 class ECOC:
@@ -1052,18 +1063,6 @@ class GradientBoosting:
         y_pred = self.predict(test)
         y = test.iloc[:, -1]
         return np.mean((y_pred - y) ** 2)
-
-
-class FeatureImportance:
-    def __init__(self):
-        self.feature_importance_ = defaultdict(float)
-
-    def add(self, model, importance):
-        for feat, imp in enumerate(importance):
-            self.feature_importance_[feat] += imp
-
-    def top_n_features(self, n=10):
-        return sorted(self.feature_importance_.items(), key=lambda x: x[1], reverse=True)[:n]
 
 
 class PCA:
