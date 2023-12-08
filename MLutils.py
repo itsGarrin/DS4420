@@ -1,3 +1,4 @@
+import concurrent.futures
 from statistics import mean, mode
 
 import keras.optimizers
@@ -1078,7 +1079,6 @@ class PCA:
         eigenvalues, eigenvectors = np.linalg.eig(cov)
         eigenvectors = eigenvectors.T
         idxs = np.argsort(eigenvalues)[::-1]
-        eigenvalues = eigenvalues[idxs]
         eigenvectors = eigenvectors[idxs]
         self.components = eigenvectors[0:self.n_components]
 
@@ -1132,6 +1132,125 @@ class MissingValuesBernoulliNaiveBayes:
         y = test.iloc[:, -1]
         predictions = self.predict(test).idxmax(axis=1)
         return np.sum(predictions == y) / len(y)
+
+
+class SVM:
+    def __init__(self, C=1.0, tol=1e-5, max_passes=10):
+        self.C = C
+        self.tol = tol
+        self.max_passes = max_passes
+        self.X = None
+        self.y = None
+        self.alpha = None
+        self.b = None
+
+    def fit(self, train):
+        X = train.iloc[:, :-1].to_numpy()
+        y = train.iloc[:, -1]
+        y = np.where(y <= 0, -1, 1)
+        self.X = X
+        self.y = y
+        m, n = X.shape
+        alpha = np.zeros(m)
+        b = 0
+        passes = 0
+
+        # compute gram matrix
+        K = np.dot(X, X.T)
+
+        while passes < self.max_passes:
+            num_changed_alphas = 0
+
+            for i in range(m):
+                Ei = np.dot(K[i], alpha * y) - y[i]
+
+                if (y[i] * Ei < -self.tol and alpha[i] < self.C) or (y[i] * Ei > self.tol and alpha[i] > 0):
+                    j = np.random.choice(np.delete(np.arange(m), i))
+                    Ej = np.dot(K[j], alpha * y) - y[j]
+
+                    alpha_i_old = alpha[i]
+                    alpha_j_old = alpha[j]
+
+                    if y[i] != y[j]:
+                        L = max(0, alpha[j] - alpha[i])
+                        H = min(self.C, self.C + alpha[j] - alpha[i])
+                    else:
+                        L = max(0, alpha[i] + alpha[j] - self.C)
+                        H = min(self.C, alpha[i] + alpha[j])
+                    if L == H:
+                        continue
+
+                    eta = 2.0 * K[i, j] - K[i, i] - K[j, j]
+
+                    if eta >= 0:
+                        continue
+
+                    alpha[j] -= y[j] * (Ei - Ej) / eta
+                    alpha[j] = np.clip(alpha[j], L, H)
+
+                    if np.abs(alpha[j] - alpha_j_old) < 1e-5:
+                        continue
+                    alpha[i] += y[j] * y[i] * (alpha_j_old - alpha[j])
+
+                    b1 = b - Ei - y[i] * (alpha[i] - alpha_i_old) * K[i, i] - y[j] * (alpha[j] - alpha_j_old) * K[i, j]
+                    b2 = b - Ej - y[i] * (alpha[i] - alpha_i_old) * K[i, j] - y[j] * (alpha[j] - alpha_j_old) * K[j, j]
+
+                    if 0 < alpha[i] < self.C:
+                        b = b1
+                    elif 0 < alpha[j] < self.C:
+                        b = b2
+                    else:
+                        b = (b1 + b2) / 2
+
+                    num_changed_alphas += 1
+
+            if num_changed_alphas == 0:
+                passes += 1
+            else:
+                passes = 0
+
+            self.alpha = alpha
+            self.b = b
+
+    def predict(self, test):
+        X = test.iloc[:, :-1].to_numpy()
+
+        y_pred = []
+        for x in X:
+            prediction = np.sign(np.dot(self.alpha * self.y, np.dot(self.X, x)) + self.b)
+            y_pred.append(prediction)
+
+        return np.array(y_pred)
+
+    def cross_validate(self, train, k=5):
+        fold_size = int(len(train) / k)
+        results = []
+
+        # Prepare the input for the workers
+        for i in range(k):
+            # Shuffle data
+            train = train.sample(frac=1).reset_index(drop=True)
+            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
+                drop=True)
+            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+            results.append((training_fold.copy(), validation_fold.copy()))
+
+        # Create a pool of workers and pass them the work
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            accuracies = list(executor.map(self.evaluate_fold, results))
+
+        return np.mean(accuracies)
+
+    def evaluate_fold(self, folds_data):
+        training_fold, validation_fold = folds_data
+        self.fit(training_fold)
+        predictions = self.predict(validation_fold)
+        labels = validation_fold[validation_fold.columns[-1]]
+        labels = np.where(labels <= 0, -1, 1)
+        accuracy = np.sum(predictions == labels) / len(labels)
+
+        return accuracy
 
 
 def normalize(data):
