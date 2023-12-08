@@ -258,7 +258,7 @@ class LinearRegression:
 
 # Build a ridge linear regression class
 class RidgeLinearRegression:
-    def __init__(self, alpha):
+    def __init__(self, alpha=1):
         self.alpha = alpha
         self.weights = None
 
@@ -300,7 +300,7 @@ class RidgeLinearRegression:
 
 # Build a linear regression class with gradient descent
 class LinearGradientDescent:
-    def __init__(self, alpha, learning_rate, iterations):
+    def __init__(self, alpha=1, learning_rate=1e-4, iterations=100):
         self.alpha = alpha
         self.learning_rate = learning_rate
         self.iterations = iterations
@@ -349,7 +349,7 @@ class LinearGradientDescent:
 
 # Build a logistic regression class with gradient descent
 class LogisticGradientDescent:
-    def __init__(self, alpha, learning_rate, iterations):
+    def __init__(self, alpha=1, learning_rate=1e-4, iterations=100):
         self.alpha = alpha
         self.learning_rate = learning_rate
         self.iterations = iterations
@@ -427,7 +427,7 @@ class LogisticGradientDescent:
 
 # Build a perceptron class with normalized weights and counter for mistakes per iteration
 class Perceptron:
-    def __init__(self, learning_rate):
+    def __init__(self, learning_rate=5e-2):
         self.learning_rate = learning_rate
         self.weights = None
         self.mistakes = None
