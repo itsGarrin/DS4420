@@ -1162,11 +1162,11 @@ class SVM:
             num_changed_alphas = 0
 
             for i in range(m):
-                Ei = np.dot(K[i], alpha * y) - y[i]
+                Ei = np.dot(K[i], alpha * y) - y[i] + b
 
                 if (y[i] * Ei < -self.tol and alpha[i] < self.C) or (y[i] * Ei > self.tol and alpha[i] > 0):
                     j = np.random.choice(np.delete(np.arange(m), i))
-                    Ej = np.dot(K[j], alpha * y) - y[j]
+                    Ej = np.dot(K[j], alpha * y) - y[j] + b
 
                     alpha_i_old = alpha[i]
                     alpha_j_old = alpha[j]
@@ -1209,8 +1209,8 @@ class SVM:
             else:
                 passes = 0
 
-            self.alpha = alpha
-            self.b = b
+        self.alpha = alpha
+        self.b = b
 
     def predict(self, test):
         X = test.iloc[:, :-1].to_numpy()
