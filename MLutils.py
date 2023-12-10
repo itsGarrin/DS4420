@@ -1,4 +1,4 @@
-import concurrent.futures
+import multiprocessing as mp
 from statistics import mean, mode
 
 import keras.optimizers
@@ -1237,8 +1237,8 @@ class SVM:
             results.append((training_fold.copy(), validation_fold.copy()))
 
         # Create a pool of workers and pass them the work
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            accuracies = list(executor.map(self.evaluate_fold, results))
+        with mp.Pool(mp.cpu_count()) as pool:
+            accuracies = pool.map(self.evaluate_fold, results)
 
         return np.mean(accuracies)
 
