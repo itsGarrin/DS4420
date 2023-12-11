@@ -1222,7 +1222,7 @@ class SVM:
 
         return np.array(y_pred)
 
-    def cross_validate(self, train, k=5):
+    def cross_validate(self, train, k=10):
         fold_size = int(len(train) / k)
         results = []
 
