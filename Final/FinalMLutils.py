@@ -93,7 +93,7 @@ class AutoencoderTF(Model):
         return self.output_layer(activation)
 
     def train(self, X, y, epochs=10000, learning_rate=1e-3):
-        self.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+        self.compile(optimizer=keras.optimizers.legacy.Adam(learning_rate=learning_rate),
                      loss=losses.MeanSquaredError())
         self.fit(X, y, epochs=epochs, shuffle=True, verbose=1)
 

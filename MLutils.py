@@ -1276,6 +1276,48 @@ class SVM:
         return np.mean(accuracies)
 
 
+class KNN:
+    def __init__(self, k=1, bandwidth=1.1):
+        self.k = k
+        self.bandwidth = bandwidth
+        self.X = None
+        self.y = None
+
+    def fit(self, train):
+        self.X = train.iloc[:, :-1]
+        self.y = train.iloc[:, -1]
+
+    def predict(self, test):
+        X = test.iloc[:, :-1].to_numpy()
+
+        predictions = []
+        for x in X:
+            predictions.append(self.__predict_row(x))
+
+        return np.array(predictions)
+
+    def __predict_row(self, x):
+        distances = np.linalg.norm(self.X - x, axis=1)
+        k_nearest_labels = self.y.iloc[np.argsort(distances)[:self.k]]
+        return self.__gaussian(x, k_nearest_labels)
+
+    def __gaussian(self, x, k_nearest_labels):
+        # Calculate the distances
+        distances = np.linalg.norm(x - self.X.iloc[k_nearest_labels], axis=1)
+
+        # Calculate the numerator and denominator separately
+        numerator = np.sum(k_nearest_labels * np.exp(-distances ** 2 / (2 * self.bandwidth ** 2)))
+        denominator = np.sum(np.exp(-distances ** 2 / (2 * self.bandwidth ** 2)))
+
+        # Return the division result
+        return numerator / denominator
+
+    def accuracy(self, test):
+        y = test.iloc[:, -1]
+        predictions = self.predict(test)
+        return np.sum(predictions == y) / len(y)
+
+
 def normalize(data):
     avg = data.mean()
     stdev = data.std()
