@@ -1135,31 +1135,34 @@ class MissingValuesBernoulliNaiveBayes:
 
 
 class SVM:
-    def __init__(self, C=1.0, tol=1e-5, max_passes=10):
+    def __init__(self, C=1.0, tol=1e-5, max_passes=10, iterations=1000):
         self.C = C
         self.tol = tol
         self.max_passes = max_passes
+        self.iterations = iterations
         self.X = None
         self.y = None
         self.alpha = None
         self.b = None
+        self.threshold = 1
 
     def fit(self, train):
         X = train.iloc[:, :-1].to_numpy()
         y = train.iloc[:, -1]
-        y = np.where(y <= 0, -1, 1)
+        y = np.where(y == self.threshold, 1, -1)
         self.X = X
         self.y = y
         m, n = X.shape
         alpha = np.zeros(m)
         b = 0
-        passes = 0
+        # passes = 0
 
         # compute gram matrix
         K = np.dot(X, X.T)
 
-        while passes < self.max_passes:
-            num_changed_alphas = 0
+        for _ in range(self.iterations):
+            # while passes < self.max_passes:
+            # num_changed_alphas = 0
 
             for i in range(m):
                 Ei = np.dot(K[i], alpha * y) - y[i] + b
@@ -1202,12 +1205,7 @@ class SVM:
                     else:
                         b = (b1 + b2) / 2
 
-                    num_changed_alphas += 1
-
-            if num_changed_alphas == 0:
-                passes += 1
-            else:
-                passes = 0
+                    break
 
         self.alpha = alpha
         self.b = b
@@ -1247,10 +1245,35 @@ class SVM:
         self.fit(training_fold)
         predictions = self.predict(validation_fold)
         labels = validation_fold[validation_fold.columns[-1]]
-        labels = np.where(labels <= 0, -1, 1)
+        labels = np.where(labels == self.threshold, 1, -1)
         accuracy = np.sum(predictions == labels) / len(labels)
 
         return accuracy
+
+    def ovr(self, train, classes=10):
+        fold_size = int(len(train) / classes)
+        accuracies = []
+
+        # Prepare the input for the workers
+        for i in range(classes):
+            # Shuffle data
+            train = train.sample(frac=1).reset_index(drop=True)
+            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
+                drop=True)
+            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+            self.threshold = i
+            self.fit(training_fold)
+            predictions = self.predict(validation_fold)
+
+            labels = validation_fold.iloc[:, -1]
+            labels = np.where(labels == self.threshold, 1, -1)
+
+            accuracy = np.sum(predictions == labels) / len(labels)
+            accuracies.append(accuracy)
+            print('Class ' + str(i) + ' Accuracy: ' + str(accuracy))
+
+        return np.mean(accuracies)
 
 
 def normalize(data):
