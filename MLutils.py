@@ -23,21 +23,16 @@ class DecisionTree:
         self.target_impurity = target_impurity
         self.tree = None
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
-        y = train.iloc[:, -1]
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         self.tree = self.__build_tree(X, y)
 
-    def predict(self, test):
-        return self.__predict(test)
-
-    def __build_tree(self, X, y, depth=0):
+    def __build_tree(self, X: pd.DataFrame, y: pd.DataFrame, depth=0):
         if self.regression:
             return self.__build_tree_regression(X, y, depth)
         else:
             return self.__build_tree_classification(X, y, depth)
 
-    def __build_tree_regression(self, X, y, depth):
+    def __build_tree_regression(self, X: pd.DataFrame, y: pd.DataFrame, depth: int):
         if depth == self.max_depth:
             return self.__leaf_regression(y)
         elif len(y) <= self.min_instances:
@@ -54,7 +49,7 @@ class DecisionTree:
             return [best_split[0], best_split[1], self.__build_tree_regression(left_X, left_y, depth),
                     self.__build_tree_regression(right_X, right_y, depth)]
 
-    def __build_tree_classification(self, X, y, depth):
+    def __build_tree_classification(self, X: pd.DataFrame, y: pd.DataFrame, depth: int):
         if depth == self.max_depth:
             return self.__leaf_classification(y)
         elif len(y) <= self.min_instances:
@@ -71,13 +66,13 @@ class DecisionTree:
             return [best_split[0], best_split[1], self.__build_tree_classification(left_X, left_y, depth),
                     self.__build_tree_classification(right_X, right_y, depth)]
 
-    def __leaf_regression(self, y):
+    def __leaf_regression(self, y: pd.DataFrame):
         return y.mean()
 
-    def __leaf_classification(self, y):
+    def __leaf_classification(self, y: pd.DataFrame):
         return mode(y)
 
-    def __best_split(self, X, y):
+    def __best_split(self, X: pd.DataFrame, y: pd.DataFrame):
         best_feature = None
         best_value = None
         best_score = np.inf
@@ -92,13 +87,13 @@ class DecisionTree:
 
         return best_feature, best_value
 
-    def __score(self, X, y, feature, value):
+    def __score(self, X: pd.DataFrame, y: pd.DataFrame, feature: str, value: float):
         left = y[X[feature] <= value]
         right = y[X[feature] > value]
 
         return self.__impurity(left) * len(left) + self.__impurity(right) * len(right)
 
-    def __impurity(self, y):
+    def __impurity(self, y: pd.DataFrame):
         if self.criterion == "entropy":
             return self.__entropy(y)
         elif self.criterion == "gini":
@@ -108,33 +103,33 @@ class DecisionTree:
         else:
             raise ValueError("Invalid criterion")
 
-    def __entropy(self, y):
+    def __entropy(self, y: pd.DataFrame):
         if len(y) == 0:
             return 0
         else:
             p = y.value_counts() / len(y)
             return -sum(p * np.log2(p))
 
-    def __gini(self, y):
+    def __gini(self, y: pd.DataFrame):
         if len(y) == 0:
             return 0
         else:
             p = y.value_counts() / len(y)
             return 1 - sum(p ** 2)
 
-    def __mse(self, y):
+    def __mse(self, y: pd.DataFrame):
         if len(y) == 0:
             return 0
         else:
             return np.var(y)
 
-    def __predict(self, test):
-        return test.apply(self.__predict_row, axis=1)
+    def predict(self, X: pd.DataFrame):
+        return X.apply(self.__predict_row, axis=1)
 
-    def __predict_row(self, row):
+    def __predict_row(self, row: pd.Series):
         return self.__predict_row_helper(row, self.tree)
 
-    def __predict_row_helper(self, row, tree):
+    def __predict_row_helper(self, row: pd.Series, tree):
         if isinstance(tree, float) or isinstance(tree, int):
             return tree
         else:
@@ -143,162 +138,36 @@ class DecisionTree:
             else:
                 return self.__predict_row_helper(row, tree[3])
 
-    def mse(self, test):
-        predictions = self.predict(test)
-        labels = test.iloc[:, -1]
-        return np.mean((predictions - labels) ** 2)
 
-    def cross_validate(self, train, k=10, confusion=False):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        matrix = np.zeros(shape=(2, 2), dtype=int)
-
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-            predictions = self.predict(validation_fold)
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            matrix += confusion_matrix(labels, predictions)
-
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
-
-        if confusion:
-            return np.mean(accuracies), matrix
-        else:
-            return np.mean(accuracies)
-
-
-# Implement a linear regression class using exact solution
-# w = (X^TX)^-1(X^Ty)
 class LinearRegression:
     def __init__(self):
         self.w = None
         return
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         X = np.c_[np.ones(X.shape[0]), X]
-        y = train.iloc[:, -1]
+
         self.w = np.linalg.inv(X.T.dot(X)).dot(X.T).dot(y)
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X: pd.DataFrame):
         X = np.c_[np.ones(X.shape[0]), X]
         return X.dot(self.w)
 
-    def mse(self, test):
-        y_pred = self.predict(test)
-        y = test.iloc[:, -1]
-        return np.mean((y - y_pred) ** 2)
 
-    def cross_validate(self, train, k=10, confusion=False):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        matrix = np.zeros(shape=(2, 2), dtype=int)
-
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-
-            pred = np.vectorize(lambda y: 1 if y >= 0.5 else 0)
-            predictions = pred(self.predict(validation_fold))
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            matrix += confusion_matrix(labels, predictions)
-
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
-
-        if confusion:
-            return np.mean(accuracies), matrix
-        else:
-            return np.mean(accuracies)
-
-    def roc_curve(self, train, num_thresholds=51, k=10):
-        fold_size = int(len(train) / k)
-        matrices = np.zeros(shape=(num_thresholds, 2, 2), dtype=int)
-        i = k - 1
-
-        # Shuffle data
-        train = train.sample(frac=1).reset_index(drop=True)
-        training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-            drop=True)
-        validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-        self.fit(training_fold)
-
-        threshold_matrices = []
-        validation_predictions = self.predict(validation_fold)
-        thresholds = np.linspace(np.min(validation_predictions), np.max(validation_predictions), num_thresholds)
-
-        for threshold in thresholds:
-            pred = np.vectorize(lambda y: 1 if y >= threshold else 0)
-            predictions = pred(validation_predictions)
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            threshold_matrices.append(confusion_matrix(labels, predictions))
-
-        # sum matrices along axis
-        matrices = np.add(matrices, threshold_matrices)
-
-        return generate_roc_curve(matrices)
-
-
-# Build a ridge linear regression class
 class RidgeLinearRegression:
     def __init__(self, alpha=1):
         self.alpha = alpha
         self.weights = None
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         X = np.c_[np.ones(X.shape[0]), X]
-        y = train.iloc[:, -1]
         self.weights = np.linalg.inv(X.T @ X + self.alpha * np.identity(X.shape[1])) @ X.T @ y
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X: pd.DataFrame):
         X = np.c_[np.ones(X.shape[0]), X]
         return X @ self.weights
 
-    def mse(self, test):
-        y_pred = self.predict(test)
-        y = test.iloc[:, -1]
-        return np.mean((y_pred - y) ** 2)
 
-    def cross_validate(self, train, k=10):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-            pred = np.vectorize(lambda y: 1 if y >= 0.5 else 0)
-            predictions = pred(self.predict(validation_fold))
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
-        return np.mean(accuracies)
-
-
-# Build a linear regression class with gradient descent
 class LinearGradientDescent:
     def __init__(self, alpha=1, learning_rate=1e-4, iterations=100):
         self.alpha = alpha
@@ -306,10 +175,8 @@ class LinearGradientDescent:
         self.iterations = iterations
         self.weights = None
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         X = np.c_[np.ones(X.shape[0]), X]
-        y = train.iloc[:, -1]
         self.weights = np.zeros(X.shape[1])
 
         for i in range(self.iterations):
@@ -317,37 +184,11 @@ class LinearGradientDescent:
             gradient = (X.T.dot(predictions - y) + self.alpha * self.weights)
             self.weights -= self.learning_rate * gradient
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X):
         X = np.c_[np.ones(X.shape[0]), X]
         return X @ self.weights
 
-    def mse(self, test):
-        y_pred = self.predict(test)
-        y = test.iloc[:, -1]
-        return np.mean((y_pred - y) ** 2)
 
-    def cross_validate(self, train, k=10):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-            pred = np.vectorize(lambda y: 1 if y >= 0.5 else 0)
-            predictions = pred(self.predict(validation_fold))
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
-        return np.mean(accuracies)
-
-
-# Build a logistic regression class with gradient descent
 class LogisticGradientDescent:
     def __init__(self, alpha=1, learning_rate=1e-4, iterations=100):
         self.alpha = alpha
@@ -355,10 +196,8 @@ class LogisticGradientDescent:
         self.iterations = iterations
         self.weights = None
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         X = np.c_[np.ones(X.shape[0]), X]
-        y = train.iloc[:, -1]
         self.weights = np.zeros(X.shape[1])
 
         for i in range(self.iterations):
@@ -366,76 +205,19 @@ class LogisticGradientDescent:
             gradient = (X.T @ (predictions - y) + self.alpha * self.weights)
             self.weights -= self.learning_rate * gradient
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X):
         X = np.c_[np.ones(X.shape[0]), X]
         return _sigmoid(X @ self.weights)
 
-    def cross_validate(self, train, k=10, confusion=False):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        matrix = np.zeros(shape=(2, 2), dtype=int)
 
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-            pred = np.vectorize(lambda y: 1 if y >= 0.5 else 0)
-            predictions = pred(self.predict(validation_fold))
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            matrix += confusion_matrix(labels, predictions)
-
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
-
-        out = [np.mean(accuracies)]
-        if confusion:
-            out.append(matrix)
-
-        return out
-
-    def roc_curve(self, train, num_thresholds=51, k=10):
-        fold_size = int(len(train) / k)
-        matrices = np.zeros(shape=(num_thresholds, 2, 2), dtype=int)
-        thresholds = np.linspace(0, 1, num_thresholds)
-
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-
-            threshold_matrices = []
-            for threshold in thresholds:
-                pred = np.vectorize(lambda y: 1 if y >= threshold else 0)
-                predictions = pred(self.predict(validation_fold))
-                labels = validation_fold[validation_fold.columns[-1]]
-
-                threshold_matrices.append(confusion_matrix(labels, predictions))
-
-            matrices = np.add(matrices, threshold_matrices)
-        return generate_roc_curve(matrices)
-
-
-# Build a perceptron class with normalized weights and counter for mistakes per iteration
 class Perceptron:
     def __init__(self, learning_rate=5e-2):
         self.learning_rate = learning_rate
         self.weights = None
         self.mistakes = None
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
+    def fit(self, X: pd.DataFrame):
         X = np.c_[np.ones(X.shape[0]), X]
-        y = train.iloc[:, -1]
         self.weights = np.random.normal(0, 1, X.shape[1])
         self.mistakes = []
 
@@ -452,8 +234,7 @@ class Perceptron:
 
         return self.weights
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X: pd.DataFrame):
         X = np.c_[np.ones(X.shape[0]), X]
         return np.sign(X @ self.weights)
 
@@ -548,65 +329,35 @@ class AutoencoderTF(Model):
         return predictions
 
 
-# Create a GDA class with covariance matrix and mean
 class GaussianDiscriminantAnalysis:
     def __init__(self, epsilon=1e-9):
         self.mean = None
         self.covariance = None
         self.epsilon = epsilon
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
-        y = train.iloc[:, -1]
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         self.mean = X.groupby(y).mean()
         self.covariance = X.groupby(y).cov() + self.epsilon
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X: pd.DataFrame):
         return self.__predict(X).idxmax(axis=1)
 
-    def __predict(self, X):
+    def __predict(self, X: pd.DataFrame):
         predictions = []
         for row in X.iterrows():
             row = row[1]
             predictions.append(self.__predict_row(row))
         return pd.DataFrame(predictions)
 
-    def __predict_row(self, row):
+    def __predict_row(self, row: pd.Series):
         probabilities = []
         for label in self.mean.index:
             probabilities.append(self.__gaussian(row, self.mean.loc[label], self.covariance.loc[label]))
         return pd.Series(probabilities, index=self.mean.index)
 
-    def __gaussian(self, x, mean, covariance):
+    def __gaussian(self, x: pd.Series, mean: pd.Series, covariance: pd.DataFrame):
         return (1 / np.sqrt(np.linalg.det(covariance))) * np.exp(
             -0.5 * (x - mean).T @ np.linalg.inv(covariance) @ (x - mean))
-
-    def cross_validate(self, train, k=10, confusion=False):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        matrix = np.zeros(shape=(2, 2), dtype=int)
-
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-            predictions = self.predict(validation_fold)
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            matrix += confusion_matrix(labels, predictions)
-
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
-
-        if confusion:
-            return np.mean(accuracies), matrix
-        else:
-            return np.mean(accuracies)
 
 
 class BernoulliNaiveBayes:
@@ -616,10 +367,8 @@ class BernoulliNaiveBayes:
         self.probs = {}
         self.epsilon = epsilon
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
-        y = train.iloc[:, -1]
-        self.priors = X.groupby(y).size() / len(train)
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
+        self.priors = X.groupby(y).size() / len(X)
         self.threshold = X.mean().mean()
 
         X = X >= self.threshold
@@ -628,83 +377,24 @@ class BernoulliNaiveBayes:
             samples = X[y == label]
             self.probs[label] = samples.mean() + self.epsilon
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X: pd.DataFrame):
         return pd.DataFrame(self.__predict(X))
 
-    def __predict(self, X):
+    def __predict(self, X: pd.DataFrame):
         predictions = []
         for row in X.iterrows():
             row = row[1]
             predictions.append(self.__predict_row(row))
         return predictions
 
-    def __predict_row(self, row):
+    def __predict_row(self, row: pd.Series):
         probabilities = []
         for label in self.probs:
             probabilities.append(self.__bernoulli(row, self.threshold, self.probs[label], self.priors[label]))
         return pd.Series(probabilities, index=self.probs.keys())
 
-    def __bernoulli(self, x, threshold, prob, prior):
+    def __bernoulli(self, x: pd.Series, threshold: float, prob: float, prior: float):
         return np.sum(np.where(x >= threshold, np.log(prob), np.log(1 - prob))) + np.log(prior)
-
-    def cross_validate(self, train, k=10, confusion=False):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        matrix = np.zeros(shape=(2, 2), dtype=int)
-
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-            predictions = self.predict(validation_fold).idxmax(axis=1)
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            matrix += confusion_matrix(labels, predictions)
-
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
-
-        if confusion:
-            return np.mean(accuracies), matrix
-        else:
-            return np.mean(accuracies)
-
-    def roc_curve(self, train, k=10):
-        fold_size = int(len(train) / k)
-
-        i = k - 1
-
-        # Shuffle data
-        train = train.sample(frac=1).reset_index(drop=True)
-        training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-            drop=True)
-        validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-        self.fit(training_fold)
-
-        pred = self.predict(validation_fold)
-        pred = pred.iloc[:, 0] - pred.iloc[:, 1]
-        thresholds = np.unique(pred)
-        thresholds = np.sort(thresholds)[::-1]
-
-        matrices = np.zeros(shape=(len(thresholds), 2, 2), dtype=int)
-
-        threshold_matrices = []
-        for threshold in thresholds:
-            vector = np.vectorize(lambda y: 1 if y >= threshold else 0)
-            predictions = vector(pred)
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            threshold_matrices.append(confusion_matrix(labels, predictions))
-
-        matrices = np.add(matrices, threshold_matrices)
-
-        return generate_roc_curve(matrices)
 
 
 class GaussianNaiveBayes:
@@ -714,95 +404,34 @@ class GaussianNaiveBayes:
         self.variances = None
         self.epsilon = epsilon
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
-        y = train.iloc[:, -1]
-        self.priors = X.groupby(y).size() / len(train)
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
+        self.priors = X.groupby(y).size() / len(X)
         self.means = X.groupby(y).mean()
         self.variances = X.groupby(y).var() + self.epsilon
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X: pd.DataFrame):
         return self.__predict(X)
 
-    def __predict(self, X):
+    def __predict(self, X: pd.DataFrame):
         predictions = []
         for row in X.iterrows():
             row = row[1]
             predictions.append(self.__predict_row(row))
         return pd.DataFrame(predictions)
 
-    def __predict_row(self, row):
+    def __predict_row(self, row: pd.Series):
         probabilities = []
         for label in self.means.index:
             probabilities.append(
                 self.__gaussian(row, self.means.loc[label], self.variances.loc[label], self.priors[label]))
         return pd.Series(probabilities, index=self.means.index)
 
-    def __gaussian(self, x, mean, variance, prior):
+    def __gaussian(self, x: pd.Series, mean: pd.Series, variance: pd.DataFrame, prior: float):
         return np.log(prior) + np.sum(-0.5 * np.log(2 * np.pi * variance) - 0.5 * ((x - mean) ** 2 / variance))
-
-    def cross_validate(self, train, k=10, confusion=False):
-        fold_size = int(len(train) / k)
-        accuracies = []
-        matrix = np.zeros(shape=(2, 2), dtype=int)
-
-        for i in range(k):
-            # Shuffle data
-            train = train.sample(frac=1).reset_index(drop=True)
-            training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-                drop=True)
-            validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-            self.fit(training_fold)
-            predictions = self.predict(validation_fold).idxmax(axis=1)
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            matrix += confusion_matrix(labels, predictions)
-
-            accuracy = np.sum(predictions == labels) / len(labels)
-            accuracies.append(accuracy)
-
-        if confusion:
-            return np.mean(accuracies), matrix
-        else:
-            return np.mean(accuracies)
-
-    def roc_curve(self, train, k=10):
-        fold_size = int(len(train) / k)
-
-        i = k - 1
-
-        # Shuffle data
-        train = train.sample(frac=1).reset_index(drop=True)
-        training_fold = pd.concat([train.iloc[:i * fold_size], train.iloc[(i + 1) * fold_size:]]).reset_index(
-            drop=True)
-        validation_fold = train.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
-
-        self.fit(training_fold)
-
-        pred = self.predict(validation_fold)
-        pred = pred.iloc[:, 1] - pred.iloc[:, 0]
-        thresholds = np.unique(pred)
-        thresholds = np.sort(thresholds)[::-1]
-
-        matrices = np.zeros(shape=(len(thresholds), 2, 2), dtype=int)
-
-        threshold_matrices = []
-        for threshold in thresholds:
-            vector = np.vectorize(lambda y: 1 if y >= threshold else 0)
-            predictions = vector(pred)
-            labels = validation_fold[validation_fold.columns[-1]]
-
-            threshold_matrices.append(confusion_matrix(labels, predictions))
-
-        matrices = np.add(matrices, threshold_matrices)
-
-        return generate_roc_curve(matrices)
 
 
 class GaussianEM:
-    def __init__(self, dim, k, epochs=500, epsilon=1e-9):
+    def __init__(self, dim: int, k: int, epochs=500, epsilon=1e-9):
         self.means = [np.random.normal(size=dim) for _ in range(k)]
         self.covariances = [np.eye(dim) for _ in range(k)]
         self.weights = np.ones(k) / k
@@ -812,21 +441,21 @@ class GaussianEM:
         self.epochs = epochs
         self.memberships = None
 
-    def fit(self, X):
+    def fit(self, X: pd.DataFrame):
         for _ in range(self.epochs):
             self.__e_step(X)
             self.__m_step(X)
 
         return self.means, self.covariances
 
-    def __e_step(self, X):
+    def __e_step(self, X: pd.DataFrame):
         self.memberships = np.zeros((X.shape[0], self.weights.shape[0]))
         for i in range(self.weights.shape[0]):
             self.memberships[:, i] = self.weights[i] * multivariate_normal.pdf(X, self.means[i], self.covariances[i])
 
         self.memberships = self.memberships / self.memberships.sum(axis=1, keepdims=True)
 
-    def __m_step(self, X):
+    def __m_step(self, X: pd.DataFrame):
         self.weights = self.memberships.sum(axis=0) / X.shape[0]
 
         for i in range(self.weights.shape[0]):
@@ -837,9 +466,8 @@ class GaussianEM:
                                                                                   i].sum() + self.epsilon
 
 
-# create a EM class to predict coin flips
 class BinomialEM:
-    def __init__(self, k, epochs=500, epsilon=1e-9):
+    def __init__(self, k: int, epochs=500, epsilon=1e-9):
         self.probs = np.random.random((k, 1))
         self.weights = np.ones(k) / k
         self.k = k
@@ -847,21 +475,21 @@ class BinomialEM:
         self.epochs = epochs
         self.memberships = None
 
-    def fit(self, X):
+    def fit(self, X: pd.DataFrame):
         for _ in range(self.epochs):
             self.__e_step(X)
             self.__m_step(X)
 
         return self.weights, self.probs
 
-    def __e_step(self, X):
+    def __e_step(self, X: pd.DataFrame):
         self.memberships = np.zeros((X.shape[0], self.weights.shape[0]))
         for i in range(self.weights.shape[0]):
             self.memberships[:, i] = self.weights[i] * np.prod(binom.pmf(X, 1, self.probs[i]), axis=1)
 
         self.memberships = self.memberships / self.memberships.sum(axis=1, keepdims=True)
 
-    def __m_step(self, X):
+    def __m_step(self, X: pd.DataFrame):
         self.weights = self.memberships.sum(axis=0) / X.shape[0]
 
         for i in range(self.weights.shape[0]):
@@ -878,9 +506,7 @@ class AdaBoost:
         self.splitter = splitter
         self.feature_importance = None
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
-        y = train.iloc[:, -1]
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         y = np.where(y <= 0, -1, 1)
         weights = np.ones(len(X)) / len(X)
 
@@ -900,8 +526,7 @@ class AdaBoost:
             self.alphas.append(alpha)
             self.models.append(stump)
 
-    def predict(self, test):
-        X = test.iloc[:, :-1]
+    def predict(self, X: pd.DataFrame):
         predictions = np.zeros(len(X))
 
         for alpha, model in zip(self.alphas, self.models):
@@ -909,37 +534,37 @@ class AdaBoost:
 
         return np.sign(predictions)
 
-    def accuracy(self, test):
-        y = test.iloc[:, -1]
-        y = np.where(y <= 0, -1, 1)
-        predictions = self.predict(test)
-        return np.sum(predictions == y) / len(y)
+    def active_learning(self, X: pd.DataFrame, y: pd.DataFrame, initial_train_size=0.05, step_size=0.025,
+                        final_train_size=0.6):
+        X, y = shuffle(X, y)
+        train_data_features, train_data_labels, rest_data_features, rest_data_labels = train_test_split(X, y,
+                                                                                                        train_size=initial_train_size)
 
-    def active_learning(self, data, initial_train_size=0.05, step_size=0.025, final_train_size=0.6):
-        data = shuffle(data)
-        train_data, rest_data = train_test_split(data, train_size=initial_train_size)
+        self.fit(train_data_features, train_data_labels)
+        y_pred = self.predict(train_data_features)
+        accuracy_scores = [accuracy(train_data_labels, y_pred)]
 
-        self.fit(train_data)
-        accuracy_scores = [self.accuracy(train_data)]
-
-        while len(train_data) < final_train_size * len(data):
+        while len(train_data_features) < len(X) * final_train_size:
             # computing the absolute prediction scores
-            rest_data_scores = self.predict(rest_data)
+            rest_data_scores = self.predict(rest_data_features)
 
             # selecting the samples closest to decision surface
-            closest_samples_indices = np.argsort(rest_data_scores)[:int(step_size * len(rest_data))]
-            closest_samples = rest_data.iloc[closest_samples_indices]
+            closest_samples_indices = np.argsort(np.abs(rest_data_scores))
+            closest_samples_indices = closest_samples_indices[:int(step_size * len(X))]
 
             # adding the selected samples to the training data
-            train_data = pd.concat([train_data, closest_samples], ignore_index=True).reset_index(drop=True)
+            train_data_features = pd.concat([train_data_features, rest_data_features.iloc[closest_samples_indices]])
+            train_data_labels = pd.concat([train_data_labels, rest_data_labels.iloc[closest_samples_indices]])
 
             # removing the selected samples from the remaining data
-            rest_data = rest_data.drop(closest_samples_indices, errors='ignore').reset_index(drop=True)
+            rest_data_features = rest_data_features.drop(rest_data_features.index[closest_samples_indices])
+            rest_data_labels = rest_data_labels.drop(rest_data_labels.index[closest_samples_indices])
 
-            self.fit(train_data)
-            accuracy_scores.append(self.accuracy(train_data))
+            self.fit(train_data_features, train_data_labels)
+            y_pred = self.predict(train_data_features)
+            accuracy_scores.append(accuracy(train_data_labels, y_pred))
 
-        return mean(accuracy_scores), train_data
+        return mean(accuracy_scores)
 
     def __get_feature_importance(self):
         feature_scores = {}
@@ -962,14 +587,12 @@ class AdaBoost:
 
 
 class ECOC:
-    def __init__(self, ecoc_codes):
+    def __init__(self, ecoc_codes: np.ndarray):
         self.ecoc_codes = ecoc_codes
         self.estimators = []
         self.classes = None
 
-    def fit(self, train):
-        X = train.iloc[:, :-1]
-        y = train.iloc[:, -1]
+    def fit(self, X: pd.DataFrame, y: pd.DataFrame):
         self.classes = np.unique(y)
 
         for column_index in range(self.ecoc_codes.shape[1]):
@@ -1005,11 +628,6 @@ class ECOC:
             distances.append(np.sum(code != row))
         return self.classes[np.argmin(distances)]
 
-    def accuracy(self, test):
-        y = test.iloc[:, -1]
-        predictions = self.predict(test)
-        return np.sum(predictions == y) / len(y)
-
 
 class Bagging:
     def __init__(self, n_estimators=50, max_depth=None):
@@ -1032,11 +650,6 @@ class Bagging:
         for tree in self.trees:
             predictions.append(tree.predict(X))
         return [mode(pred) for pred in np.transpose(predictions)]
-
-    def accuracy(self, test):
-        y = test.iloc[:, -1]
-        predictions = self.predict(test)
-        return np.sum(predictions == y) / len(y)
 
 
 class GradientBoosting:
@@ -1316,6 +929,115 @@ class KNN:
         y = test.iloc[:, -1]
         predictions = self.predict(test)
         return np.sum(predictions == y) / len(y)
+
+
+def mse(y: pd.DataFrame, y_pred: pd.DataFrame):
+    return np.mean((y_pred - y) ** 2)
+
+
+def accuracy(y: pd.DataFrame, y_pred: pd.DataFrame):
+    return np.sum(y_pred == y) / len(y)
+
+
+def cross_validate(model: object, X: pd.DataFrame, y: pd.DataFrame, k=10, confusion=False, idxmax=False):
+    fold_size = int(len(X) / k)
+    accuracies = []
+    matrices = np.zeros(shape=(2, 2), dtype=int)
+
+    for i in range(k):
+        # Shuffle data
+        X, y = shuffle(X, y)
+        training_fold = pd.concat([X.iloc[:i * fold_size], X.iloc[(i + 1) * fold_size:]]).reset_index(drop=True)
+        validation_fold = X.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+        training_labels = pd.concat([y.iloc[:i * fold_size], y.iloc[(i + 1) * fold_size:]]).reset_index(drop=True)
+        validation_labels = y.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+        model.fit(training_fold, training_labels)
+        predictions = model.predict(validation_fold)
+
+        if idxmax:
+            predictions = predictions.idxmax(axis=1)
+
+        predictions = np.where(predictions >= 0.5, 1, 0)
+
+        matrices += confusion_matrix(validation_labels, predictions)
+
+        accuracy = np.sum(predictions == validation_labels) / len(validation_labels)
+        accuracies.append(accuracy)
+
+    if confusion:
+        return np.mean(accuracies), matrices
+    else:
+        return np.mean(accuracies)
+
+
+def multiprocess_cv(model: object, X: pd.DataFrame, y: pd.DataFrame, k=10):
+    fold_size = int(len(X) / k)
+    results = []
+
+    # Prepare the input for the workers
+    for i in range(k):
+        # Shuffle data
+        X, y = shuffle(X, y)
+        training_fold = pd.concat([X.iloc[:i * fold_size], X.iloc[(i + 1) * fold_size:]]).reset_index(drop=True)
+        validation_fold = X.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+        training_labels = pd.concat([y.iloc[:i * fold_size], y.iloc[(i + 1) * fold_size:]]).reset_index(drop=True)
+        validation_labels = y.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+        results.append((model, training_fold, validation_fold, training_labels, validation_labels))
+
+    # Create a pool of workers and pass them the work
+    with mp.Pool(mp.cpu_count()) as pool:
+        accuracies = pool.map(evaluate_fold, results)
+
+    return np.mean(accuracies)
+
+
+def evaluate_fold(folds_data: tuple):
+    model, training_fold, validation_fold, training_labels, validation_labels = folds_data
+    model.fit(training_fold, training_labels)
+    predictions = model.predict(validation_fold)
+    predictions = np.where(predictions >= 0.5, 1, 0)
+    accuracy = np.sum(predictions == validation_labels) / len(validation_labels)
+
+    return accuracy
+
+
+def roc_curve(model: object, X: pd.DataFrame, y: pd.DataFrame, num_thresholds=51, k=10, nb=False):
+    fold_size = int(len(X) / k)
+
+    i = k - 1
+
+    # Shuffle data
+    X, y = shuffle(X, y)
+    training_fold = pd.concat([X.iloc[:i * fold_size], X.iloc[(i + 1) * fold_size:]]).reset_index(drop=True)
+    validation_fold = X.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+    training_labels = pd.concat([y.iloc[:i * fold_size], y.iloc[(i + 1) * fold_size:]]).reset_index(drop=True)
+    validation_labels = y.iloc[i * fold_size:(i + 1) * fold_size].reset_index(drop=True)
+
+    model.fit(training_fold, training_labels)
+    pred = model.predict(validation_fold)
+
+    thresholds = np.linspace(np.min(pred), np.max(pred), num_thresholds)
+
+    if nb:
+        pred = pred.iloc[:, 1] - pred.iloc[:, 0]
+        thresholds = np.unique(pred)
+        thresholds = np.sort(thresholds)[::-1]
+
+    matrices = np.zeros(shape=(len(thresholds), 2, 2), dtype=int)
+
+    threshold_matrices = []
+    for threshold in thresholds:
+        vector = np.vectorize(lambda y: 1 if y >= threshold else 0)
+        predictions = vector(pred)
+
+        threshold_matrices.append(confusion_matrix(validation_labels, predictions))
+
+    # sum matrices along axis
+    matrices = np.add(matrices, threshold_matrices)
+
+    return generate_roc_curve(matrices)
 
 
 def normalize(data):
